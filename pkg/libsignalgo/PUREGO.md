@@ -43,7 +43,18 @@ combined result appended by Rust directly, avoiding duplicate endorsements. Shar
 freshly issued test responses. Full tokens are sensitive bearer credentials; their
 `String` method provides the base64 HTTP header value and must not be logged.
 
-Still stubs (`ErrNotImplemented`): SGX/CDSI (`sgxclient`, `hsmenclave`) and `devicetransfer`.
+The enclave clients and device transfer are implemented too, on libsignal-go's
+`attest/enclave` (`SGXClientState`, CDSI), `attest/hsmenclave` (`HSMEnclaveClient`) and
+`devicetransfer`, with the error codes of upstream's `IntoFfiError` impls. Their tests run in both
+builds. The HSM test completes a handshake against a Go Noise responder, and
+`TestDeviceTransferFixture` certifies a key the cgo build made. The SGX test covers
+construction, attestation failures and the state machine on the recorded CDSI staging
+attestation. It cannot complete a handshake: the only recording with a known enclave key
+(`cds2_test`) needs upstream's test-only TCB evaluation number exception, which neither build
+enables. The fork's `attest/enclave` tests cover that handshake.
+
+No purego file returns `ErrNotImplemented` any more. The sentinel stays for the stubs `stubgen`
+generates for new upstream API.
 
 The zkgroup and group-send code needs libsignal-go `v0.7.1-cw.4` or later, which go.mod
 pins. To develop against unpublished libsignal-go changes, use a temporary Go workspace
