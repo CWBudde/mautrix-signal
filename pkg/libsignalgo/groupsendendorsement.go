@@ -208,15 +208,7 @@ func (gser GroupSendEndorsementsResponse) ReceiveWithServiceIDs(
 			memberEndorsements[member] = endorsements[i]
 		}
 	}
-	nonEmptyEndorsements := make([]GroupSendEndorsement, 0, len(endorsements))
-	for _, endorsement := range endorsements {
-		if len(endorsement) > 0 {
-			nonEmptyEndorsements = append(nonEmptyEndorsements, endorsement)
-		}
-	}
-	combined, err := GroupSendEndorsementCombine(nonEmptyEndorsements...)
-	if err != nil {
-		return nil, memberEndorsements, err
-	}
-	return combined, memberEndorsements, nil
+	// The Rust bridge appends the combined endorsement for all members except
+	// localUser. Recombining it with the individual entries duplicates recipients.
+	return endorsements[len(groupMembers)], memberEndorsements, nil
 }
