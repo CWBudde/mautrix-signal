@@ -29,9 +29,25 @@ fingerprints, the account entropy pool and backup keys, `AccessKey`, AES-256-GCM
 The stores are called directly (`storeadapters_purego.go`), and errors carry the codes the cgo
 build reports (`error_purego.go`). `InitLogger` does nothing: libsignal-go doesn't log.
 
-Still stubs (`ErrNotImplemented`): zkgroup (`authcredential`, `groupsecretparams`,
-`groupsendendorsement`, the credential half of `profilekey`, `ServerPublicParams.VerifySignature`),
-SGX/CDSI (`sgxclient`, `hsmenclave`) and `devicetransfer`.
+The zkgroup group/profile APIs are implemented too: validated server parameters
+and notary signatures, group derivation and attribute encryption, profile
+commitments/versions and expiring credentials, and auth credentials with PNI.
+`GenerateRandomness` uses `crypto/rand`. API signatures and serialized forms match
+the CGO build; `TestZKGroupAPI` runs the same pinned Rust fixture in both builds.
+
+Group-send endorsements are implemented: verified receipt, member maps, combination,
+removal, token conversion and expiry extraction. The combined receipt result excludes
+the local user; the member map includes all users. The CGO wrapper now consumes the
+combined result appended by Rust directly, avoiding duplicate endorsements. Shared
+`TestGroupSendEndorsementShim` checks both builds against a pinned Rust fixture and
+freshly issued test responses. Full tokens are sensitive bearer credentials; their
+`String` method provides the base64 HTTP header value and must not be logged.
+
+Still stubs (`ErrNotImplemented`): SGX/CDSI (`sgxclient`, `hsmenclave`) and `devicetransfer`.
+
+The zkgroup and group-send code needs libsignal-go `v0.7.1-cw.4` or later, which go.mod
+pins. To develop against unpublished libsignal-go changes, use a temporary Go workspace
+containing this checkout and the sibling `libsignal-go` checkout.
 
 After rebasing onto a new upstream tag: run `go run ./pkg/libsignalgo/internal/stubgen -gen`
 (new cgo files get stubs, and new API in hand-written files shows up in `-check`), then `-check`,
