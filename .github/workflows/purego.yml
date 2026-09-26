@@ -1,0 +1,31 @@
+name: purego
+
+# cwbudde fork: the pure-Go build of pkg/libsignalgo (build tag purego, no cgo).
+
+on: [push, pull_request]
+
+jobs:
+  purego:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: API parity (cgo vs purego)
+        run: go run ./pkg/libsignalgo/internal/stubgen -check
+
+      - name: Generated stubs are up to date
+        run: |
+          go run ./pkg/libsignalgo/internal/stubgen -gen
+          git diff --exit-code
+
+      - name: Vet and build
+        run: |
+          go vet -tags purego ./pkg/...
+          go build -tags purego ./pkg/...
