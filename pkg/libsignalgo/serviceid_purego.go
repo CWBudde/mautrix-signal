@@ -22,6 +22,7 @@ package libsignalgo
 
 import (
 	"database/sql/driver"
+
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )

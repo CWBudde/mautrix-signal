@@ -214,9 +214,16 @@ func stubFile(fset *token.FileSet, file *ast.File) ([]byte, error) {
 	}
 	imports := usedImports(file, declBuf.String())
 	if len(imports) > 0 {
+		// Grouped like `goimports -local go.mau.fi/mautrix-signal` (the repo's pre-commit hook):
+		// standard library, third party, this module.
 		buf.WriteString("import (\n")
-		for _, imp := range imports {
-			buf.WriteString("\t" + imp + "\n")
+		for i, group := range groupImports(imports) {
+			if i > 0 {
+				buf.WriteString("\n")
+			}
+			for _, imp := range group {
+				buf.WriteString("\t" + imp + "\n")
+			}
 		}
 		buf.WriteString(")\n\n")
 	}
@@ -300,6 +307,31 @@ func usedImports(file *ast.File, code string) []string {
 		out = append(out, spec)
 	}
 	return out
+}
+
+const localPrefix = "go.mau.fi/mautrix-signal"
+
+func groupImports(specs []string) [][]string {
+	var std, third, local []string
+	for _, spec := range specs {
+		path, _ := strconv.Unquote(spec[strings.Index(spec, `"`):])
+		switch {
+		case strings.HasPrefix(path, localPrefix):
+			local = append(local, spec)
+		case !strings.Contains(strings.Split(path, "/")[0], "."):
+			std = append(std, spec)
+		default:
+			third = append(third, spec)
+		}
+	}
+	var groups [][]string
+	for _, group := range [][]string{std, third, local} {
+		if len(group) > 0 {
+			sort.Strings(group)
+			groups = append(groups, group)
+		}
+	}
+	return groups
 }
 
 func refersToC(node ast.Node) bool {

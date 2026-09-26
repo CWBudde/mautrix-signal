@@ -22,8 +22,9 @@
 package libsignalgo
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type SenderCertificate struct {
