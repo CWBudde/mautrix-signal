@@ -19,14 +19,12 @@
 package libsignalgo
 
 import (
-	"bytes"
-	"fmt"
+	"github.com/cwbudde/libsignal-go/zkgroup"
 )
 
-// ServerPublicParams holds the serialized zkgroup server parameters. Parsing them is part of the
-// zkgroup port (go-signal PLAN.md 8.3); until then only the length is checked.
+// ServerPublicParams holds validated zkgroup server parameters.
 type ServerPublicParams struct {
-	serialized []byte
+	inner *zkgroup.ServerPublicParams
 }
 
 type NotarySignature = fixedArray64
@@ -36,10 +34,11 @@ const ServerPublicParamsLength = 673
 // DeserializeServerPublicParams must succeed for the embedded production parameters, which
 // signalmeow deserializes at init.
 func DeserializeServerPublicParams(params []byte) (*ServerPublicParams, error) {
-	if len(params) != ServerPublicParamsLength {
-		return nil, fmt.Errorf("invalid server public params length: %d (expected %d)", len(params), ServerPublicParamsLength)
+	p, err := zkgroup.ParseServerPublicParams(params)
+	if err != nil {
+		return nil, zkError(err)
 	}
-	return &ServerPublicParams{serialized: bytes.Clone(params)}, nil
+	return &ServerPublicParams{inner: p}, nil
 }
 
 func ServerPublicParamsVerifySignature(
@@ -47,5 +46,8 @@ func ServerPublicParamsVerifySignature(
 	messageBytes []byte,
 	NotarySignature NotarySignature,
 ) error {
-	return ErrNotImplemented
+	if serverPublicParams == nil {
+		return errInvalidArgument("nil server params")
+	}
+	return zkError(serverPublicParams.inner.VerifySignature(messageBytes, zkgroup.NotarySignature(NotarySignature)))
 }

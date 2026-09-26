@@ -8,9 +8,10 @@ tool go.mau.fi/util/cmd/maubuild
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/cwbudde/libsignal-go v0.7.1-cw.2
+	github.com/cwbudde/libsignal-go v0.7.1-cw.4
 	github.com/emersion/go-vcard v0.0.0-20241024213814-c9703dde27ff
 	github.com/google/uuid v1.6.0
+	github.com/gtank/ristretto255 v0.2.0
 	github.com/mattn/go-pointer v0.0.1
 	github.com/rs/zerolog v1.35.1
 	github.com/stretchr/testify v1.12.0

@@ -23,12 +23,9 @@ import (
 	"crypto/aes"
 	"encoding/base64"
 	"errors"
-
+	"github.com/cwbudde/libsignal-go/zkgroup"
 	"github.com/google/uuid"
 )
-
-// The zkgroup functions (commitment, version, credentials) are not ported yet
-// (go-signal PLAN.md Phase 8) and return ErrNotImplemented.
 
 const ProfileKeyLength = 32
 const AccessKeyLength = 16
@@ -84,11 +81,13 @@ func (ak *AccessKey) String() string {
 }
 
 func (pk *ProfileKey) GetCommitment(u uuid.UUID) (*ProfileKeyCommitment, error) {
-	return *new(*ProfileKeyCommitment), ErrNotImplemented
+	c := ProfileKeyCommitment(zkgroup.ProfileKey(*pk).Commitment([16]byte(u)))
+	return &c, nil
 }
 
 func (pk *ProfileKey) GetProfileKeyVersion(u uuid.UUID) (*ProfileKeyVersion, error) {
-	return *new(*ProfileKeyVersion), ErrNotImplemented
+	v := ProfileKeyVersion(zkgroup.ProfileKey(*pk).Version([16]byte(u)))
+	return &v, nil
 }
 
 // DeriveAccessKey derives the unidentified access key: AES-256 under the
@@ -120,27 +119,66 @@ type ExpiringProfileKeyCredential = fixedArray153
 type ExpiringProfileKeyCredentialResponse = fixedArray497
 
 func CreateProfileKeyCredentialRequestContext(serverPublicParams *ServerPublicParams, u uuid.UUID, profileKey ProfileKey) (*ProfileKeyCredentialRequestContext, error) {
-	return *new(*ProfileKeyCredentialRequestContext), ErrNotImplemented
+	c, e := serverPublicParams.inner.CreateProfileKeyCredentialRequestContext([32]byte(GenerateRandomness()), [16]byte(u), zkgroup.ProfileKey(profileKey))
+	if e != nil {
+		return nil, zkError(e)
+	}
+	out := ProfileKeyCredentialRequestContext(c.Bytes())
+	return &out, nil
 }
 
 func (p *ProfileKeyCredentialRequestContext) ProfileKeyCredentialRequestContextGetRequest() (*ProfileKeyCredentialRequest, error) {
-	return *new(*ProfileKeyCredentialRequest), ErrNotImplemented
+	c, e := zkgroup.ParseProfileKeyCredentialRequestContext(p[:])
+	if e != nil {
+		return nil, zkError(e)
+	}
+	r := ProfileKeyCredentialRequest(c.Request().Bytes())
+	return &r, nil
 }
 
 func NewExpiringProfileKeyCredentialResponse(b []byte) (*ExpiringProfileKeyCredentialResponse, error) {
-	return *new(*ExpiringProfileKeyCredentialResponse), ErrNotImplemented
+	c, e := zkgroup.ParseExpiringProfileKeyCredentialResponse(b)
+	if e != nil {
+		return nil, zkError(e)
+	}
+	out := ExpiringProfileKeyCredentialResponse(c.Bytes())
+	return &out, nil
 }
 
 func ReceiveExpiringProfileKeyCredential(spp *ServerPublicParams, requestContext *ProfileKeyCredentialRequestContext, response *ExpiringProfileKeyCredentialResponse, currentTimeInSeconds uint64) (*ExpiringProfileKeyCredential, error) {
-	return *new(*ExpiringProfileKeyCredential), ErrNotImplemented
+	c, e := zkgroup.ParseProfileKeyCredentialRequestContext(requestContext[:])
+	if e != nil {
+		return nil, zkError(e)
+	}
+	r, e := zkgroup.ParseExpiringProfileKeyCredentialResponse(response[:])
+	if e != nil {
+		return nil, zkError(e)
+	}
+	v, e := spp.inner.ReceiveExpiringProfileKeyCredential(c, r, currentTimeInSeconds)
+	if e != nil {
+		return nil, zkError(e)
+	}
+	out := ExpiringProfileKeyCredential(v.Bytes())
+	return &out, nil
 }
 
-func (a ProfileKeyCredentialPresentation) CheckValidContents() error { return ErrNotImplemented }
+func (a ProfileKeyCredentialPresentation) CheckValidContents() error {
+	_, e := zkgroup.ParseProfileKeyCredentialPresentation(a)
+	return zkError(e)
+}
 
 func (a ProfileKeyCredentialPresentation) UUIDCiphertext() (UUIDCiphertext, error) {
-	return *new(UUIDCiphertext), ErrNotImplemented
+	p, e := zkgroup.ParseProfileKeyCredentialPresentation(a)
+	if e != nil {
+		return UUIDCiphertext{}, zkError(e)
+	}
+	return UUIDCiphertext(p.UUIDCiphertext().Bytes()), nil
 }
 
 func (a ProfileKeyCredentialPresentation) ProfileKeyCiphertext() (ProfileKeyCiphertext, error) {
-	return *new(ProfileKeyCiphertext), ErrNotImplemented
+	p, e := zkgroup.ParseProfileKeyCredentialPresentation(a)
+	if e != nil {
+		return ProfileKeyCiphertext{}, zkError(e)
+	}
+	return ProfileKeyCiphertext(p.ProfileKeyCiphertext().Bytes()), nil
 }
