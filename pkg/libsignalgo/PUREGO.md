@@ -12,8 +12,27 @@ only upstream code the fork changes.
   (it only overwrites files that carry its marker).
 - `internal/stubgen -check` fails when the exported API of the two builds differs. CI
   (`.github/workflows/purego.yml`) runs it, checks that the generated stubs are current, and
-  vets and builds `./pkg/...` with `CGO_ENABLED=0 -tags purego`.
-- Tests run only against the cgo build for now.
+  vets, builds and tests with `CGO_ENABLED=0 -tags purego`.
+- The package's tests run against both builds. A test of something the purego build doesn't
+  implement yet carries `//go:build !purego` (stubgen leaves tests alone).
+- `TestCrossBackend` checks that state written by one backend works with the other: each build
+  writes a fixture (`testdata/crossbackend_{cgo,purego}.json`, regenerated with
+  `LIBSIGNALGO_WRITE_FIXTURE=1`), and both builds load both fixtures, check that every record
+  serializes back to the same bytes, and continue the sessions in them.
+
+## What the purego build implements
+
+The protocol core, on libsignal-go: keys and addresses, the pre-key and session records, the
+session cipher (`Encrypt`, `Decrypt`, `DecryptPreKey`, `ProcessPreKeyBundle`), sender keys and
+the group cipher, sealed sender v1 and v2, `DecryptionErrorMessage`/`PlaintextContent`,
+fingerprints, the account entropy pool and backup keys, `AccessKey`, AES-256-GCM-SIV and HKDF.
+The stores are called directly (`storeadapters_purego.go`), and errors carry the codes the cgo
+build reports (`error_purego.go`). `InitLogger` does nothing: libsignal-go doesn't log.
+
+Still stubs (`ErrNotImplemented`): zkgroup (`authcredential`, `groupsecretparams`,
+`groupsendendorsement`, the credential half of `profilekey`, `ServerPublicParams.VerifySignature`),
+SGX/CDSI (`sgxclient`, `hsmenclave`) and `devicetransfer`.
 
 After rebasing onto a new upstream tag: run `go run ./pkg/libsignalgo/internal/stubgen -gen`
-(new cgo files get stubs, and new API in hand-written files shows up in `-check`), then `-check`.
+(new cgo files get stubs, and new API in hand-written files shows up in `-check`), then `-check`,
+then the tests in both builds.

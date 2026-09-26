@@ -25,7 +25,8 @@ jobs:
           go run ./pkg/libsignalgo/internal/stubgen -gen
           git diff --exit-code
 
-      - name: Vet and build
+      - name: Vet, build and test
         run: |
           go vet -tags purego ./pkg/...
           go build -tags purego ./pkg/...
+          go test -tags purego ./pkg/libsignalgo/...

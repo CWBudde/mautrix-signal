@@ -101,8 +101,10 @@ func generate(dir string, names []string) error {
 		if err != nil {
 			return err
 		}
-		isTest := strings.HasSuffix(name, "_test.go")
-		if !isTest && !importsC(file) {
+		// Tests are left alone: a test runs in both builds unless it carries its
+		// own `//go:build !purego` (set by hand for tests of code the purego build
+		// doesn't implement yet).
+		if strings.HasSuffix(name, "_test.go") || !importsC(file) {
 			continue
 		}
 		expr, hasConstraint := buildConstraint(file)
@@ -113,10 +115,9 @@ func generate(dir string, names []string) error {
 			}
 		}
 		// Only a constraint of the file's own (not the one added here) marks it as special.
-		ownConstraint := hasConstraint && expr != "!purego"
-		if isTest || ownConstraint {
-			// Tests only run against the cgo build. Files with their own constraint (the
-			// compiler-specific fixedarray files) hold no exported API, see -check.
+		// Files with their own constraint (the compiler-specific fixedarray files) hold no
+		// exported API, see -check.
+		if hasConstraint && expr != "!purego" {
 			continue
 		}
 		out, err := stubFile(fset, file)
@@ -126,8 +127,7 @@ func generate(dir string, names []string) error {
 		target := strings.TrimSuffix(path, ".go") + "_purego.go"
 		old, err := os.ReadFile(target)
 		if err == nil && !bytes.Contains(old, []byte(generatedMarker)) {
-			fmt.Fprintf(os.Stderr, "stubgen: %s is hand-written, not overwriting\n", target)
-			continue
+			continue // hand-written; -check still compares its API
 		}
 		err = os.WriteFile(target, out, 0o644)
 		if err != nil {

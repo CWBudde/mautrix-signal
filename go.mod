@@ -8,6 +8,7 @@ tool go.mau.fi/util/cmd/maubuild
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/cwbudde/libsignal-go v0.7.1-cw.2
 	github.com/emersion/go-vcard v0.0.0-20241024213814-c9703dde27ff
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-pointer v0.0.1
@@ -27,6 +28,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/cloudflare/circl v1.6.4 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/lib/pq v1.12.3 // indirect
