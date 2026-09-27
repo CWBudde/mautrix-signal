@@ -16,13 +16,13 @@
 
 // Command stubgen maintains the purego build of libsignalgo.
 //
-// Every cgo file x.go in libsignalgo is built with `!purego`. Its purego counterpart is
-// x_purego.go (build tag `purego`), which declares the same exported API.
+// Every cgo file x.go in libsignalgo is built with `!libsignal_go`. Its purego counterpart is
+// x_purego.go (build tag `libsignal_go`), which declares the same exported API.
 //
 //	go run ./pkg/libsignalgo/internal/stubgen -gen x.go ...   # write stub twins for cgo files
 //	go run ./pkg/libsignalgo/internal/stubgen -check          # compare the exported API of both builds
 //
-// -gen adds `//go:build !purego` to the cgo file and writes x_purego.go with the file's constants,
+// -gen adds `//go:build !libsignal_go` to the cgo file and writes x_purego.go with the file's constants,
 // types (fields with C types dropped) and exported functions and methods. Stub bodies return
 // ErrNotImplemented when the function returns an error, do nothing when it has no results, and
 // panic otherwise. A stub file stops being generated once it's hand-written: -gen refuses to
@@ -102,13 +102,13 @@ func generate(dir string, names []string) error {
 			return err
 		}
 		// Tests are left alone: a test runs in both builds unless it carries its
-		// own `//go:build !purego` (set by hand for tests of code the purego build
+		// own `//go:build !libsignal_go` (set by hand for tests of code the purego build
 		// doesn't implement yet).
 		if strings.HasSuffix(name, "_test.go") || !importsC(file) {
 			continue
 		}
 		expr, hasConstraint := buildConstraint(file)
-		if !strings.Contains(expr, "purego") {
+		if !strings.Contains(expr, "libsignal_go") {
 			err = addConstraint(path, src, file, expr, hasConstraint)
 			if err != nil {
 				return err
@@ -117,7 +117,7 @@ func generate(dir string, names []string) error {
 		// Only a constraint of the file's own (not the one added here) marks it as special.
 		// Files with their own constraint (the compiler-specific fixedarray files) hold no
 		// exported API, see -check.
-		if hasConstraint && expr != "!purego" {
+		if hasConstraint && expr != "!libsignal_go" {
 			continue
 		}
 		out, err := stubFile(fset, file)
@@ -160,12 +160,12 @@ func buildConstraint(file *ast.File) (string, bool) {
 	return "", false
 }
 
-// addConstraint makes the cgo file (or test) build only without the purego tag.
+// addConstraint makes the cgo file (or test) build only without the libsignal_go tag.
 func addConstraint(path string, src []byte, file *ast.File, expr string, has bool) error {
 	text := string(src)
 	if has {
 		old := "//go:build " + expr
-		text = strings.Replace(text, old, "//go:build !purego && ("+expr+")", 1)
+		text = strings.Replace(text, old, "//go:build !libsignal_go && ("+expr+")", 1)
 	} else {
 		// Put the constraint before the package clause, after any leading license header.
 		offset := 0
@@ -174,7 +174,7 @@ func addConstraint(path string, src []byte, file *ast.File, expr string, has boo
 		} else {
 			offset = int(file.Package) - 1
 		}
-		text = text[:offset] + "//go:build !purego\n\n" + text[offset:]
+		text = text[:offset] + "//go:build !libsignal_go\n\n" + text[offset:]
 	}
 	return os.WriteFile(path, []byte(text), 0o644)
 }
@@ -196,7 +196,7 @@ func stubFile(fset *token.FileSet, file *ast.File) ([]byte, error) {
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString("//go:build purego\n\n")
+	buf.WriteString("//go:build libsignal_go\n\n")
 	buf.WriteString(licenseHeader(file))
 	buf.WriteString(generatedMarker + "\n\n")
 	buf.WriteString("package " + file.Name.Name + "\n\n")
@@ -495,7 +495,7 @@ func checkAPI(dir string) error {
 }
 
 // exportedAPI returns one key per exported declaration of the package as built with or without
-// the purego tag (for linux/gc; compiler-specific files must not declare exported API).
+// the libsignal_go tag (for linux/gc; compiler-specific files must not declare exported API).
 func exportedAPI(dir string, purego bool) (map[string]bool, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
@@ -519,7 +519,7 @@ func exportedAPI(dir string, purego bool) (map[string]bool, error) {
 			}
 			ok := x.Eval(func(tag string) bool {
 				switch tag {
-				case "purego":
+				case "libsignal_go":
 					return purego
 				case "cgo":
 					return !purego

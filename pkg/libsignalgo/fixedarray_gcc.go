@@ -1,4 +1,4 @@
-//go:build !purego && !(darwin || android || ios || (windows && arm64))
+//go:build !libsignal_go && !(darwin || android || ios || (windows && arm64))
 
 package libsignalgo
 

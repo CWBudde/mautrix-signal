@@ -1,4 +1,4 @@
-//go:build purego
+//go:build libsignal_go
 
 // mautrix-signal - A Matrix-signal puppeting bridge.
 // Copyright (C) 2026 Christian Budde

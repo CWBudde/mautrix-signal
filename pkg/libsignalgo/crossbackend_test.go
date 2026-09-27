@@ -37,7 +37,7 @@ import (
 // the generating half of the test:
 //
 //	LIBSIGNALGO_WRITE_FIXTURE=1 go test -run TestCrossBackend ./pkg/libsignalgo/                        # cgo
-//	LIBSIGNALGO_WRITE_FIXTURE=1 CGO_ENABLED=0 go test -tags purego -run TestCrossBackend ./pkg/libsignalgo/
+//	LIBSIGNALGO_WRITE_FIXTURE=1 CGO_ENABLED=0 go test -tags libsignal_go -run TestCrossBackend ./pkg/libsignalgo/
 
 const (
 	crossAliceACI       = "9d0652a3-dcc3-4d11-975f-74d61598733f"

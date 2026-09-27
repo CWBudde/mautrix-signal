@@ -1,4 +1,4 @@
-//go:build !purego
+//go:build !libsignal_go
 
 package libsignalgo
 
