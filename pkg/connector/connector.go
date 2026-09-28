@@ -32,11 +32,11 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
-	"go.mau.fi/mautrix-signal/pkg/msgconv"
-	"go.mau.fi/mautrix-signal/pkg/signalid"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/store"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/web"
+	"github.com/cwbudde/mautrix-signal/pkg/msgconv"
+	"github.com/cwbudde/mautrix-signal/pkg/signalid"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/store"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
 type SignalConnector struct {

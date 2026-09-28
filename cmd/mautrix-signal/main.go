@@ -21,8 +21,8 @@ import (
 
 	"maunium.net/go/mautrix/bridgev2/matrix/mxmain"
 
-	"go.mau.fi/mautrix-signal/pkg/connector"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/web"
+	"github.com/cwbudde/mautrix-signal/pkg/connector"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
 // Information to find out exactly which commit the bridge was built from.

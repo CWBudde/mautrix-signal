@@ -5,7 +5,7 @@
 package libsignalgo
 
 import (
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo/signalversion"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo/signalversion"
 )
 
 const Version = signalversion.Version

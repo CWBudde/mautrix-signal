@@ -214,7 +214,7 @@ func stubFile(fset *token.FileSet, file *ast.File) ([]byte, error) {
 	}
 	imports := usedImports(file, declBuf.String())
 	if len(imports) > 0 {
-		// Grouped like `goimports -local go.mau.fi/mautrix-signal` (the repo's pre-commit hook):
+		// Grouped like `goimports -local github.com/cwbudde/mautrix-signal` (the repo's pre-commit hook):
 		// standard library, third party, this module.
 		buf.WriteString("import (\n")
 		for i, group := range groupImports(imports) {
@@ -309,7 +309,7 @@ func usedImports(file *ast.File, code string) []string {
 	return out
 }
 
-const localPrefix = "go.mau.fi/mautrix-signal"
+const localPrefix = "github.com/cwbudde/mautrix-signal"
 
 func groupImports(specs []string) [][]string {
 	var std, third, local []string

@@ -23,8 +23,8 @@ import (
 	"go.mau.fi/util/exslices"
 	"go.mau.fi/util/ptr"
 
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/backuppb"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/backuppb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 )
 
 func boolToInt(b bool) int {

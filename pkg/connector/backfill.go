@@ -28,10 +28,10 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
-	"go.mau.fi/mautrix-signal/pkg/msgconv"
-	"go.mau.fi/mautrix-signal/pkg/signalid"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/backuppb"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/store"
+	"github.com/cwbudde/mautrix-signal/pkg/msgconv"
+	"github.com/cwbudde/mautrix-signal/pkg/signalid"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/backuppb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/store"
 )
 
 var _ bridgev2.BackfillingNetworkAPI = (*SignalClient)(nil)

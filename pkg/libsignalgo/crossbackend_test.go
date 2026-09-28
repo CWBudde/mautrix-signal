@@ -28,7 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 )
 
 // The cross-backend test checks that state written by one backend (cgo or

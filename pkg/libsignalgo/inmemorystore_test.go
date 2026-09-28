@@ -26,7 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 )
 
 type SenderKeyName struct {

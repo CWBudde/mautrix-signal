@@ -11,10 +11,10 @@
 package one_time_donations
 
 import (
-	errors "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/errors"
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
-	subscriptions "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/subscriptions"
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/tag"
+	errors "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/errors"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
+	subscriptions "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/subscriptions"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/tag"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

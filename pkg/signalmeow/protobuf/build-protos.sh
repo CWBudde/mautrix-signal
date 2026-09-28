@@ -1,6 +1,6 @@
 #!/bin/bash
 cd $(dirname "$0")
-BASE_IMPORT_PATH="go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf"
+BASE_IMPORT_PATH="github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf"
 opts=()
 for file in */*.proto; do
 	opts+=("--go_opt=M${file}=${BASE_IMPORT_PATH}/$(dirname "$file")")

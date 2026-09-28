@@ -24,7 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/event"
 
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 )
 
 func (mc *MessageConverter) convertURLPreviewsToBeeper(ctx context.Context, preview []*signalpb.Preview, attMap AttachmentMap) []*event.BeeperLinkPreview {

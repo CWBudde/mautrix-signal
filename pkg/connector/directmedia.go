@@ -10,9 +10,9 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/mediaproxy"
 
-	"go.mau.fi/mautrix-signal/pkg/signalid"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/types"
+	"github.com/cwbudde/mautrix-signal/pkg/signalid"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
 )
 
 var _ bridgev2.DirectMediableNetwork = (*SignalConnector)(nil)

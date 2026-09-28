@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 )
 
 type BodyRangeValue interface {

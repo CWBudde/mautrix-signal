@@ -26,7 +26,7 @@ import (
 
 	"maunium.net/go/mautrix/id"
 
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/types"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
 )
 
 //go:embed example-config.yaml

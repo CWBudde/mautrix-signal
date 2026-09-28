@@ -28,7 +28,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 )
 
 // The fixtures are upstream libsignal v0.102.2 rust/attest/tests/data (via

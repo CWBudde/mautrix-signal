@@ -24,10 +24,10 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/id"
 
-	"go.mau.fi/mautrix-signal/pkg/msgconv/matrixfmt"
-	"go.mau.fi/mautrix-signal/pkg/msgconv/signalfmt"
-	"go.mau.fi/mautrix-signal/pkg/signalid"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow"
+	"github.com/cwbudde/mautrix-signal/pkg/msgconv/matrixfmt"
+	"github.com/cwbudde/mautrix-signal/pkg/msgconv/signalfmt"
+	"github.com/cwbudde/mautrix-signal/pkg/signalid"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow"
 )
 
 type contextKey int

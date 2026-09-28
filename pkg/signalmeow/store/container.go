@@ -11,9 +11,9 @@ import (
 	"go.mau.fi/util/dbutil"
 	"google.golang.org/protobuf/proto"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/store/upgrades"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/store/upgrades"
 )
 
 var _ DeviceStore = (*Container)(nil)

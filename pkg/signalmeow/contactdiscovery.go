@@ -34,9 +34,9 @@ import (
 	"go.mau.fi/util/exerrors"
 	"google.golang.org/protobuf/proto"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/cds2pb"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/web"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/cds2pb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
 // ProdContactDiscoveryMrenclave should always match ENCLAVE_ID_CDSI_PROD from libsignal

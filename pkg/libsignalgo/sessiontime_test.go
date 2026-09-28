@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 )
 
 // maxUnacknowledgedSessionAge is libsignal's MAX_UNACKNOWLEDGED_SESSION_AGE.

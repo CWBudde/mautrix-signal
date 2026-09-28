@@ -11,8 +11,8 @@
 package product_configuration
 
 import (
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
-	subscriptions "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/subscriptions"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
+	subscriptions "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/subscriptions"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

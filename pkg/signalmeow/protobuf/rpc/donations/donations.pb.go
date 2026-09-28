@@ -11,9 +11,9 @@
 package donations
 
 import (
-	errors "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/errors"
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/tag"
+	errors "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/errors"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/tag"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"

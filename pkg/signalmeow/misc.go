@@ -25,7 +25,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exerrors"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 )
 
 var loggingSetup = false

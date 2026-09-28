@@ -15,7 +15,7 @@ repos:
         exclude: "pb\\.go$"
         args:
           - "-local"
-          - "go.mau.fi/mautrix-signal"
+          - "github.com/cwbudde/mautrix-signal"
           - "-w"
       - id: go-vet-mod
 #      - id: go-staticcheck-repo-mod

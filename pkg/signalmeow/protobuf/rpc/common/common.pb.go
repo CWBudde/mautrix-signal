@@ -11,7 +11,7 @@
 package common
 
 import (
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

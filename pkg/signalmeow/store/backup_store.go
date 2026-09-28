@@ -31,9 +31,9 @@ import (
 	"go.mau.fi/util/ptr"
 	"google.golang.org/protobuf/proto"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/backuppb"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/types"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/backuppb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
 )
 
 type BackupChat struct {

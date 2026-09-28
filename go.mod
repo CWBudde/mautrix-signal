@@ -1,4 +1,4 @@
-module go.mau.fi/mautrix-signal
+module github.com/cwbudde/mautrix-signal
 
 go 1.26.0
 

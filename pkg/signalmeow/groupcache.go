@@ -25,8 +25,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/types"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
 )
 
 type SendEndorsementCache struct {

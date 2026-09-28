@@ -21,8 +21,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
-	"go.mau.fi/mautrix-signal/pkg/signalmeow/web"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
 type ReqRegisterFCM struct {

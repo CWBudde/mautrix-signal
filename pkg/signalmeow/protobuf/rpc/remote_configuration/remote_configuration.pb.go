@@ -11,9 +11,9 @@
 package remote_configuration
 
 import (
-	common "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/common"
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
-	_ "go.mau.fi/mautrix-signal/pkg/signalmeow/protobuf/rpc/tag"
+	common "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/common"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/require"
+	_ "github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/rpc/tag"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

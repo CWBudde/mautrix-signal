@@ -17,9 +17,9 @@ import (
 	"github.com/cwbudde/libsignal-go/poksho"
 	"github.com/cwbudde/libsignal-go/zkcredential"
 	"github.com/cwbudde/libsignal-go/zkgroup/zkcrypto"
+	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 	"github.com/google/uuid"
 	"github.com/gtank/ristretto255"
-	"go.mau.fi/mautrix-signal/pkg/libsignalgo"
 )
 
 func groupSendCheck(t *testing.T, e error) {
