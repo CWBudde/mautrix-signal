@@ -43,6 +43,13 @@ combined result appended by Rust directly, avoiding duplicate endorsements. Shar
 freshly issued test responses. Full tokens are sensitive bearer credentials; their
 `String` method provides the base64 HTTP header value and must not be logged.
 
+The fork also fixes the clock the cgo build gives libsignal: `Encrypt`, `ProcessPreKeyBundle` and
+`SessionRecord.HasCurrentState` passed epoch seconds where libsignal's `Timestamp` takes
+milliseconds (upstream still does). New unacknowledged sessions got a 1970 creation time, so the
+cgo build never found one stale (older than 30 days), and the purego build found all of them
+stale. `TestUnacknowledgedSessionClock` checks the stored time and the staleness check in both
+builds. Sessions stored before the fix count as stale once, and the next send starts a new one.
+
 The enclave clients and device transfer are implemented too, on libsignal-go's
 `attest/enclave` (`SGXClientState`, CDSI), `attest/hsmenclave` (`HSMEnclaveClient`) and
 `devicetransfer`, with the error codes of upstream's `IntoFfiError` impls. Their tests run in both
