@@ -107,7 +107,7 @@ func (sr *SessionRecord) HasCurrentState() (bool, error) {
 	signalFfiError := C.signal_session_record_has_usable_sender_chain(
 		&result,
 		sr.constPtr(),
-		C.uint64_t(time.Now().Unix()),
+		C.uint64_t(time.Now().UnixMilli()), // libsignal's Timestamp: epoch milliseconds
 	)
 	runtime.KeepAlive(sr)
 	if signalFfiError != nil {

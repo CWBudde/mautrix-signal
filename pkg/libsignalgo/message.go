@@ -31,7 +31,7 @@ import (
 
 func Encrypt(ctx context.Context, plaintext []byte, forAddress, localAddress *Address, sessionStore SessionStore, identityKeyStore IdentityKeyStore) (*CiphertextMessage, error) {
 	var ciphertextMessage C.SignalMutPointerCiphertextMessage
-	var now C.uint64_t = C.uint64_t(time.Now().Unix())
+	var now C.uint64_t = C.uint64_t(time.Now().UnixMilli()) // libsignal's Timestamp: epoch milliseconds
 	callbackCtx := NewCallbackContext(ctx)
 	defer callbackCtx.Unref()
 	signalFfiError := C.signal_encrypt_message(
