@@ -161,7 +161,53 @@ inspection before another attempt.
 Offline tests use production crypto on both backends with private test parameters
 and cover fresh invitation reads, exact ACI/PNI request bytes, signed-response
 binding, malformed representations, outcome preservation and join/privacy
-regressions. Live invitation acceptance remains separately opt-in. Join-request
-cancellation and PNI invitation decline are not provided by these APIs. Preserve
-or port this extension alongside joining when rebasing until upstream offers
-equivalent behavior.
+regressions. Live invitation acceptance remains separately opt-in. These
+invitation APIs do not cancel join requests or decline PNI invitations;
+cancellation has separate primitives below. Preserve or port this extension
+alongside joining when rebasing until upstream offers equivalent behavior.
+
+## Join-request cancellation extension in signalmeow
+
+`Client.PreviewGroupJoinRequest` fetches an authenticated password-free
+`GET /v2/groups/join/`. It shares the invite preview's public-parameter, required
+title and optional description validation and requires a numeric nonoverflowing
+`X-Signal-Timestamp`. A disabled or reset invite link does not block this read.
+A validated `PendingAdminApproval=false` is evidence for a no-op; HTTP 403/404
+remains a refusal, not evidence that a request is absent. Preview data is never
+stored as full membership state.
+
+`Client.CancelGroupJoinRequestOnce` sends at most one password-free
+`PATCH /v2/groups/` at the supplied preview revision plus one. Its plaintext
+source is the selected account's own ACI, and its only mutation is one encrypted
+own-ACI `deleteMembersPendingAdminApproval` action. It refuses revision overflow,
+never fetches a profile credential or full group state, never retries an approval
+race, and never switches to leaving full membership or declining an invitation.
+Both primitives retain normal authorization credential caching and do not read
+or mutate group-state caches/stores, persist master keys, send member
+notifications, or synchronize linked devices.
+
+`GroupJoinRequestCancelOutcome` preserves attempted revision and HTTP acceptance
+before reading or validating a successful response. HTTP 200 followed by an
+unreadable or invalid signed response remains accepted but unverified; inspect
+fresh state before another invocation. Transport failures and unexpected
+non-200 responses use `ErrGroupCancellationUncertain`, malformed data uses
+`ErrGroupCancellationInvalid`, and HTTP 423 uses `ErrGroupCancellationTerminated`.
+Explicit refusals and caller cancellation retain their error identity behind
+safe wrappers. Responses use the shared bounded sensitive transport: configured
+TLS, one Do, no redirects/replay, owned bounded body, body closure and secret-free
+errors/logging. PATCH does not require a timestamp header.
+
+Verification requires the exact server signature length and validity, epoch
+through 7, derived group ID, requested revision, encrypted own-ACI source, and
+exactly one encrypted own-ACI pending deletion. Unknown or unrelated populated
+signed fields and malformed identity ciphertext lengths are rejected. Only a
+verified result exposes owned group context/change artifacts. Verification
+proves this exact deletion at its revision; it does not promise absence of future
+requests or notification delivery. A follow-up preview/full-state read is not
+required because a removed requester may lose preview access.
+
+Offline tests cover both crypto backends with nonproduction signing parameters,
+password-free wire bytes, disabled links, approval conflicts, strict signed
+binding, partial outcomes, refusals, bounds and privacy. Live requester
+cancellation and administrator visibility remain separately opt-in. Preserve
+this extension alongside join and acceptance when rebasing.

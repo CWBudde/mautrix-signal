@@ -76,8 +76,13 @@ func previewGroupJoin(ctx context.Context, key types.SerializedGroupMasterKey, p
 	if err != nil {
 		return preview, err
 	}
+	return decodeGroupJoinPreview(response.Body, master)
+}
+
+// Shared validation for password-bearing links and password-free request previews.
+func decodeGroupJoinPreview(raw []byte, master libsignalgo.GroupMasterKey) (preview GroupJoinPreview, err error) {
 	info := &signalpb.GroupJoinInfo{}
-	if err = proto.Unmarshal(response.Body, info); err != nil {
+	if err = proto.Unmarshal(raw, info); err != nil {
 		return preview, groupJoinSafeError("could not decode group preview", err)
 	}
 	secret, err := master.SecretParams()
