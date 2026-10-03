@@ -121,3 +121,44 @@ credential fixture with a generated test-only notary key, never production
 private material. They check endpoint/action bytes, secrecy, response bounds,
 redirect refusal, signed group/self semantics, and acceptance/uncertainty without
 retries. Live joining and admin approval remain opt-in integration checks.
+
+## Invitation acceptance extension in signalmeow
+
+`Client.FetchGroupForAcceptance` reads authenticated full group state without
+consulting or populating the group cache, processing send endorsements, storing
+profile keys, or persisting master keys. It validates the key/public-parameter
+binding, bounds the response to 1 MiB, and checks nested identity representations
+before crypto conversions. Invited accounts do not need send endorsements for
+this read. Ordinary group readers retain their existing behavior.
+
+`Client.AcceptGroupInvitationOnce` accepts the selected account's own ACI or PNI
+invitation using its own ACI profile credential and one presentation-only
+promotion. The request source identifies the invited service ID, and the PATCH
+uses `/v2/groups/` without an invite-link password. It never retries, fetches
+full state, updates caches/stores, or sends notifications. Callers select the
+invitation from fresh state and verify fresh own ACI membership afterward.
+
+`GroupInvitationAcceptOutcome` distinguishes attempted submission, HTTP acceptance
+and signed-response verification. Acceptance is recorded before reading the
+successful body, so later decoding/signature errors remain accepted outcomes.
+Signed verification binds the group, revision, selected promotion, own ACI/profile
+key and, for PNI promotion, the exact invited PNI. Only the bound own identities
+may be the response source; supported server-normalized identity fields are
+checked before producing owned context/change data. Unknown/unrelated signed
+actions are rejected.
+
+Joining and acceptance share the bounded sensitive HTTP transport. They retain
+their separate endpoints and error policies, preserve configured TLS settings,
+refuse redirects/body replay, and hide credentials, sensitive references and
+arbitrary nested response/error text. Full-state GET validates the timestamp
+header; PATCH does not require it. Context cancellation and explicit rejection
+identities survive error wrapping; ambiguous submission failures require state
+inspection before another attempt.
+
+Offline tests use production crypto on both backends with private test parameters
+and cover fresh invitation reads, exact ACI/PNI request bytes, signed-response
+binding, malformed representations, outcome preservation and join/privacy
+regressions. Live invitation acceptance remains separately opt-in. Join-request
+cancellation and PNI invitation decline are not provided by these APIs. Preserve
+or port this extension alongside joining when rebasing until upstream offers
+equivalent behavior.

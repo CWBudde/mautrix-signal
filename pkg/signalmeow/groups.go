@@ -503,8 +503,8 @@ func decryptGroup(ctx context.Context, encryptedGroup *signalpb.Group, groupMast
 		}
 		decryptedPendingMember, err := decryptPendingMember(ctx, pendingMember, groupSecretParams)
 		if err != nil {
+			// Ordinary reads skip pending entries that cannot be decrypted.
 			continue
-			// decryptPendingMember returns an error if the userID is a PNI, keep decrypting
 		}
 		decryptedGroup.PendingMembers = append(decryptedGroup.PendingMembers, decryptedPendingMember)
 	}
@@ -897,8 +897,8 @@ func (cli *Client) decryptGroupChange(ctx context.Context, encryptedGroupChange 
 		pendingMember := addPendingMember.Added
 		decryptedPendingMember, err := decryptPendingMember(ctx, pendingMember, groupSecretParams)
 		if err != nil {
+			// Ordinary reads skip pending entries that cannot be decrypted.
 			continue
-			// decryptPendingMember returns an error if the userID is a PNI, keep decrypting
 		}
 		decryptedGroupChange.AddPendingMembers = append(decryptedGroupChange.AddPendingMembers, decryptedPendingMember)
 	}

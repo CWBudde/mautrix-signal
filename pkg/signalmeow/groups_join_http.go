@@ -4,18 +4,10 @@
 package signalmeow
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
-	"strconv"
-
-	"github.com/rs/zerolog"
-
-	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
 var (
@@ -69,13 +61,8 @@ func groupJoinStatusError(status int) error {
 	}
 }
 
-// groupJoinHTTPRequest performs a single request with the configured transport
-// and TLS settings. Its per-call client refuses redirects without changing the
-// shared client. It never logs the password-bearing request or server contents.
-func groupJoinHTTPRequest(ctx context.Context, method string, password, body []byte, auth *GroupAuth) (result groupJoinHTTPResult, err error) {
-	if err = ctx.Err(); err != nil {
-		return result, groupJoinSafeError("group join canceled before submission", err)
-	}
+// groupJoinHTTPRequest keeps the password-bearing join endpoints and policy.
+func groupJoinHTTPRequest(ctx context.Context, method string, password, body []byte, auth *GroupAuth) (groupJoinHTTPResult, error) {
 	var path string
 	switch method {
 	case http.MethodGet:
@@ -83,73 +70,11 @@ func groupJoinHTTPRequest(ctx context.Context, method string, password, body []b
 	case http.MethodPatch:
 		path = "/v2/groups/?inviteLinkPassword=" + base64.RawURLEncoding.EncodeToString(password)
 	default:
-		return result, ErrGroupJoinInvalid
+		return groupJoinHTTPResult{}, ErrGroupJoinInvalid
 	}
-	// Suppress contextual dependency logging on this sensitive path as well.
-	ctx = zerolog.Nop().WithContext(ctx)
-	req, err := http.NewRequestWithContext(ctx, method, "https://"+web.StorageHostname+path, bytes.NewReader(body))
-	if err != nil {
-		return result, groupJoinSafeError("could not prepare group join request", err)
-	}
-	req.Header.Set("Content-Type", string(web.ContentTypeProtobuf))
-	req.Header.Set("Content-Length", strconv.Itoa(len(body)))
-	req.Header.Set("User-Agent", web.UserAgent)
-	req.Header.Set("X-Signal-Agent", web.SignalAgent)
-	req.SetBasicAuth(auth.Username, auth.Password)
-	// Remove automatic body replay capability. PATCH is not idempotent and must
-	// never gain a retry path through a replayable request body.
-	req.GetBody = nil
-	client := *web.SignalHTTPClient
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	result.Attempted = true
-	resp, err := client.Do(req)
-	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
-	}
-	if err != nil {
-		cause := err
-		if method == http.MethodPatch {
-			cause = errors.Join(ErrGroupJoinUncertain, err)
-		}
-		return result, groupJoinSafeError("group join transport failed; inspect membership or ask an administrator before retrying", cause)
-	}
-	result.Accepted = method == http.MethodPatch && resp.StatusCode == http.StatusOK
-	if resp.StatusCode != http.StatusOK {
-		cause := groupJoinStatusError(resp.StatusCode)
-		if cause != nil {
-			return result, groupJoinSafeError(fmt.Sprintf("group join refused (HTTP %d); the link may be unavailable, reset, disabled, or banned", resp.StatusCode), cause)
-		}
-		if method == http.MethodPatch {
-			cause = ErrGroupJoinUncertain
-		} else {
-			cause = ErrGroupJoinInvalid
-		}
-		return result, groupJoinSafeError(fmt.Sprintf("unexpected group join response (HTTP %d); inspect before retrying", resp.StatusCode), cause)
-	}
-	if method == http.MethodGet {
-		timestamp := resp.Header.Get("X-Signal-Timestamp")
-		if timestamp == "" {
-			return result, groupJoinSafeError("group join response has no valid timestamp", ErrGroupJoinInvalid)
-		}
-		for _, c := range timestamp {
-			if c < '0' || c > '9' {
-				return result, groupJoinSafeError("group join response has no valid timestamp", ErrGroupJoinInvalid)
-			}
-		}
-		if _, err = strconv.ParseUint(timestamp, 10, 64); err != nil {
-			return result, groupJoinSafeError("group join response has no valid timestamp", ErrGroupJoinInvalid)
-		}
-	}
-	if resp.Body == nil {
-		return result, groupJoinSafeError("group join response has no body", ErrGroupJoinInvalid)
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, groupJoinBodyLimit+1))
-	if err != nil {
-		return result, groupJoinSafeError("could not read group join response", err)
-	}
-	if len(raw) > groupJoinBodyLimit {
-		return result, groupJoinSafeError("group join response exceeds local size limit", ErrGroupJoinInvalid)
-	}
-	result.Body = raw
-	return result, nil
+	return groupMembershipHTTPRequest(ctx, method, path, body, auth, groupMembershipHTTPPolicy{
+		Operation: "group join", Invalid: ErrGroupJoinInvalid, Uncertain: ErrGroupJoinUncertain, Terminated: ErrGroupJoinTerminated,
+		RefusalHint:   "; the link may be unavailable, reset, disabled, or banned",
+		TransportHint: "; inspect membership or ask an administrator before retrying",
+	})
 }
