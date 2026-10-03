@@ -324,7 +324,7 @@ func (s *SignalWebsocket) connectLoop(
 		retrying = false
 		backoff = initialBackoff
 
-		responseChannels := exsync.NewMap[uint64, chan *signalpb.WebSocketResponseMessage]()
+		responseChannels := exsync.NewMap[uint64, websocketPendingResponse]()
 		loopCtx, loopCancel := context.WithCancelCause(ctx)
 		s.cancelConn.Store(&loopCancel)
 		var wg sync.WaitGroup
@@ -413,8 +413,8 @@ func (s *SignalWebsocket) connectLoop(
 
 		// Clean up
 		ws.Close(websocket.StatusGoingAway, "Going away")
-		for _, responseChannel := range responseChannels.SwapData(nil) {
-			close(responseChannel)
+		for _, pending := range responseChannels.SwapData(nil) {
+			close(pending.channel)
 		}
 		loopCancel(nil)
 		wg.Wait()
@@ -432,7 +432,7 @@ func readLoop(
 	ctx context.Context,
 	ws *websocket.Conn,
 	incomingRequestChan chan *signalpb.WebSocketRequestMessage,
-	responseChannels *exsync.Map[uint64, chan *signalpb.WebSocketResponseMessage],
+	responseChannels *exsync.Map[uint64, websocketPendingResponse],
 ) error {
 	log := zerolog.Ctx(ctx).With().
 		Str("loop", "signal_websocket_read_loop").
@@ -472,7 +472,7 @@ func readLoop(
 			if msg.Response.Id == nil {
 				log.Fatal().Msg("Received response with no id")
 			}
-			responseChannel, ok := responseChannels.Pop(*msg.Response.Id)
+			pending, ok := responseChannels.Pop(*msg.Response.Id)
 			if !ok {
 				log.Warn().
 					Uint64("response_id", *msg.Response.Id).
@@ -481,9 +481,11 @@ func readLoop(
 			}
 			logEvt := log.Debug().
 				Uint64("response_id", msg.Response.GetId()).
-				Uint32("response_status", msg.Response.GetStatus()).
-				Str("response_message", msg.Response.GetMessage())
-			if log.GetLevel() == zerolog.TraceLevel || len(msg.Response.Body) < 256 {
+				Uint32("response_status", msg.Response.GetStatus())
+			if !pending.sensitive {
+				logEvt.Str("response_message", msg.Response.GetMessage())
+			}
+			if !pending.sensitive && (log.GetLevel() == zerolog.TraceLevel || len(msg.Response.Body) < 256) {
 				logEvt.Strs("response_headers", msg.Response.Headers)
 				if json.Valid(msg.Response.Body) {
 					logEvt.RawJSON("response_body", msg.Response.Body)
@@ -492,8 +494,8 @@ func readLoop(
 				}
 			}
 			logEvt.Msg("Received WS response")
-			responseChannel <- msg.Response
-			close(responseChannel)
+			pending.channel <- msg.Response
+			close(pending.channel)
 		} else if *msg.Type == signalpb.WebSocketMessage_UNKNOWN {
 			return fmt.Errorf("received message with unknown type: %v", *msg.Type)
 		} else {
@@ -502,7 +504,22 @@ func readLoop(
 	}
 }
 
+// WithSensitiveRequestLogging suppresses request paths and arbitrary correlated
+// response message/headers/body in connection-owned logs. It affects only queued
+// requests using the returned context, and is retained across existing retries.
+func WithSensitiveRequestLogging(ctx context.Context) context.Context {
+	return context.WithValue(ctx, sensitiveRequestLoggingKey{}, true)
+}
+
+type sensitiveRequestLoggingKey struct{}
+
+type websocketPendingResponse struct {
+	channel   chan *signalpb.WebSocketResponseMessage
+	sensitive bool
+}
+
 type SignalWebsocketSendMessage struct {
+	sensitive bool
 	// Populate if we're sending a request:
 	RequestTime     time.Time
 	ResponseChannel chan *signalpb.WebSocketResponseMessage
@@ -516,7 +533,7 @@ func writeLoop(
 	ctx context.Context,
 	ws *websocket.Conn,
 	sendChannel chan SignalWebsocketSendMessage,
-	responseChannels *exsync.Map[uint64, chan *signalpb.WebSocketResponseMessage],
+	responseChannels *exsync.Map[uint64, websocketPendingResponse],
 ) error {
 	log := zerolog.Ctx(ctx).With().
 		Str("loop", "signal_websocket_write_loop").
@@ -539,26 +556,24 @@ func writeLoop(
 					Request: request.RequestMessage,
 				}
 				request.RequestMessage.Id = &i
-				responseChannels.Set(i, request.ResponseChannel)
+				responseChannels.Set(i, websocketPendingResponse{channel: request.ResponseChannel, sensitive: request.sensitive})
 				if !request.RequestTime.IsZero() {
 					elapsed := time.Since(request.RequestTime)
 					if elapsed > 1*time.Minute {
 						return fmt.Errorf("request too old (%v), not sending", elapsed)
-					} else if elapsed > 10*time.Second {
-						log.Warn().
-							Uint64("request_id", i).
-							Str("request_verb", *request.RequestMessage.Verb).
-							Str("request_path", *request.RequestMessage.Path).
-							Dur("elapsed", elapsed).
-							Msg("Sending WS request")
-					} else {
-						log.Debug().
-							Uint64("request_id", i).
-							Str("request_verb", *request.RequestMessage.Verb).
-							Str("request_path", *request.RequestMessage.Path).
-							Dur("elapsed", elapsed).
-							Msg("Sending WS request")
 					}
+					level := zerolog.DebugLevel
+					if elapsed > 10*time.Second {
+						level = zerolog.WarnLevel
+					}
+					event := log.WithLevel(level)
+					event.Uint64("request_id", i).
+						Str("request_verb", *request.RequestMessage.Verb).
+						Dur("elapsed", elapsed)
+					if !request.sensitive {
+						event.Str("request_path", *request.RequestMessage.Path)
+					}
+					event.Msg("Sending WS request")
 				}
 				err := wspb.Write(ctx, ws, message)
 				if err != nil {
@@ -582,6 +597,9 @@ func writeLoop(
 					request.ResponseMessage.WriteCallback(writeStartTime)
 				}
 			} else {
+				if request.sensitive {
+					return errors.New("invalid sensitive websocket request")
+				}
 				return fmt.Errorf("invalid request: %+v", request)
 			}
 		}
@@ -628,7 +646,9 @@ func (s *SignalWebsocket) sendRequestInternal(
 		request.Headers = append(request.Headers, "authorization:Basic "+s.basicAuth.String())
 	}
 	responseChannel := make(chan *signalpb.WebSocketResponseMessage, 1)
+	sensitive, _ := ctx.Value(sensitiveRequestLoggingKey{}).(bool)
 	err := s.pushOutgoing(ctx, SignalWebsocketSendMessage{
+		sensitive:       sensitive,
 		RequestMessage:  request,
 		ResponseChannel: responseChannel,
 		RequestTime:     time.Now(),

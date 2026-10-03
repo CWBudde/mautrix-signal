@@ -19,6 +19,7 @@ import (
 	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
 // GroupJoinPreview is authenticated preview data, not proof of full membership.
@@ -63,7 +64,7 @@ func previewGroupJoin(ctx context.Context, key types.SerializedGroupMasterKey, p
 	if err != nil {
 		return preview, err
 	}
-	ctx = zerolog.Nop().WithContext(ctx)
+	ctx = web.WithSensitiveRequestLogging(zerolog.Nop().WithContext(ctx))
 	if err = ctx.Err(); err != nil {
 		return preview, groupJoinSafeError("group preview canceled", err)
 	}
@@ -160,7 +161,7 @@ func (cli *Client) joinGroupOnce(ctx context.Context, key types.SerializedGroupM
 	if cli == nil || cli.Store == nil || cli.Store.ACI == uuid.Nil {
 		return outcome, groupJoinSafeError("group join requires an account", ErrGroupJoinInvalid)
 	}
-	ctx = zerolog.Nop().WithContext(ctx)
+	ctx = web.WithSensitiveRequestLogging(zerolog.Nop().WithContext(ctx))
 	if err = ctx.Err(); err != nil {
 		return outcome, groupJoinSafeError("group join canceled before submission", err)
 	}
