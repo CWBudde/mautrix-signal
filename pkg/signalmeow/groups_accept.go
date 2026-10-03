@@ -48,7 +48,9 @@ type GroupInvitationAcceptOutcome struct {
 }
 
 // AcceptGroupInvitationOnce promotes only the selected account's invitation.
-// It never fetches full state, retries, writes caches/stores, or notifies.
+// It never fetches full state, retries, reads or updates the group-state
+// cache/store, persists master keys, or sends notifications. It retains normal
+// authorization credential caching through GetAuthorizationForToday.
 func (cli *Client) AcceptGroupInvitationOnce(ctx context.Context, key types.SerializedGroupMasterKey, revision uint32, invited libsignalgo.ServiceID) (GroupInvitationAcceptOutcome, error) {
 	if cli == nil || cli.Store == nil {
 		return GroupInvitationAcceptOutcome{}, ErrGroupAcceptanceInvalid

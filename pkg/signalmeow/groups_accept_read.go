@@ -20,8 +20,10 @@ import (
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
-// FetchGroupForAcceptance reads owned fresh full state without endorsements,
-// group caches, recipient writes, key persistence, or notifications.
+// FetchGroupForAcceptance reads owned fresh full state without reading or
+// populating cached group state or endorsements, writing recipients or profile
+// keys, persisting master keys, or sending notifications. It retains normal
+// authorization credential caching through GetAuthorizationForToday.
 func (cli *Client) FetchGroupForAcceptance(ctx context.Context, key types.SerializedGroupMasterKey) (*Group, error) {
 	if cli == nil || cli.Store == nil || cli.Store.ACI == uuid.Nil {
 		return nil, ErrGroupAcceptanceInvalid
