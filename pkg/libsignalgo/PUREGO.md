@@ -3,8 +3,8 @@
 This fork adds a pure-Go build of `libsignalgo`, selected with the `purego` build tag
 (`CGO_ENABLED=0 go build -tags purego`). It exists for
 [go-signal](https://github.com/cwbudde/go-signal) and is implemented on top of
-[`github.com/cwbudde/libsignal-go`](https://github.com/cwbudde/libsignal-go). This package is the
-only upstream code the fork changes, apart from the module path.
+[`github.com/cwbudde/libsignal-go`](https://github.com/cwbudde/libsignal-go). The intentional extensions beyond this package are documented below, alongside
+the module path change.
 
 The module path is `github.com/cwbudde/mautrix-signal`, not `go.mau.fi/mautrix-signal`, so that
 go-signal can require the fork without a `replace` directive (which would break
@@ -78,3 +78,46 @@ containing this checkout and the sibling `libsignal-go` checkout.
 After rebasing onto a new upstream tag: run `go run ./pkg/libsignalgo/internal/stubgen -gen`
 (new cgo files get stubs, and new API in hand-written files shows up in `-check`), then `-check`,
 then the tests in both builds.
+
+
+## Invite-link join extension in signalmeow
+
+The fork deliberately adds `pkg/signalmeow/groups_join.go` and
+`groups_join_http.go` to expose `Client.PreviewGroupJoin` and
+`Client.JoinGroupOnce` to go-signal. They share the pinned production parameters,
+existing authentication/credential APIs, and crypto primitives across both
+backends. Ordinary group mutations keep their existing behavior. The new helper
+submits one self join or approval request; it never retries or uses the ordinary
+full-state update path.
+
+Preview requires a valid timestamp header, matching group public parameters,
+and correctly typed/decrypted UTF-8 title and optional description. Unknown or
+disabled access policies cannot authorize a join. Preview HTTP 403 remains a
+generic authorization refusal, since an arbitrary forbidden-reason header must
+not claim a more specific diagnosis; HTTP 423 means a terminated group.
+
+Both new responses have a local 1 MiB body limit with a limit-plus-one read and
+body closure. The existing configured HTTP transport/TLS settings are retained,
+with a copied client refusing redirects. New requests and dependency errors/logs
+do not render invite passwords, request URLs, credentials, or server contents.
+This does not change or claim bounds for existing dependency readers.
+
+`GroupJoinOutcome.Attempted` distinguishes submission from preflight/credential
+failures. `Accepted` records HTTP 200 before body reading or verification, even
+when the accepted response fails afterward. A submitted transport/server failure
+without HTTP 200 is uncertain; inspect membership or consult an administrator
+before retrying. Explicit rejection statuses retain their error identity.
+`Verified` requires a valid server signature, exact group-ID binding, a supported
+change epoch (through 7), expected revision, decrypted self source, and exactly
+the selected self member/request action. Unknown/unrelated changes are rejected.
+The server may normalize a presentation into encrypted identity/profile fields
+and add its invite marker/timestamp; both supported representations are checked.
+No cache/store mutation or unvalidated notification data is produced. A direct
+join still needs the caller's fresh full-state membership verification.
+
+Offline external-package signalmeow tests run in the pure-Go CI job and also
+exercise real crypto on the cgo backend. They reuse the pinned Rust profile
+credential fixture with a generated test-only notary key, never production
+private material. They check endpoint/action bytes, secrecy, response bounds,
+redirect refusal, signed group/self semantics, and acceptance/uncertainty without
+retries. Live joining and admin approval remain opt-in integration checks.
