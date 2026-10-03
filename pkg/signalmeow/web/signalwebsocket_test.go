@@ -17,10 +17,11 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/rs/zerolog"
+
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/wspb"
-	"github.com/rs/zerolog"
 )
 
 type websocketLogBuffer struct {

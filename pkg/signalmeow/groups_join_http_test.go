@@ -69,7 +69,7 @@ func TestGroupJoinHTTPSecrecy(t *testing.T) {
 				if req.Header.Get("User-Agent") != web.UserAgent || req.Header.Get("X-Signal-Agent") != web.SignalAgent || req.Header.Get("Content-Type") != string(web.ContentTypeProtobuf) {
 					t.Fatal("missing standard headers")
 				}
-				zerolog.Ctx(req.Context()).Trace().Str("url", req.URL.String()).Msg("dependency logging")
+				zerolog.Ctx(req.Context()).Trace().Stringer("url", req.URL).Msg("dependency logging")
 				return nil, &url.Error{Op: "inner", URL: req.URL.String(), Err: cause}
 			})
 			_, attempted, accepted, err := signalmeow.GroupJoinHTTPForTest(logger.WithContext(context.Background()), method, joinPassword())

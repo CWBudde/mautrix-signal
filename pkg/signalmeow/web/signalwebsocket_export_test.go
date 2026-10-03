@@ -8,8 +8,9 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
-	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 	"go.mau.fi/util/exsync"
+
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 )
 
 // Runs the production queue and read/write loops with a fixture connection;
