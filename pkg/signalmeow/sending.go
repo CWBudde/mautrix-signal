@@ -838,8 +838,7 @@ func isUrgent(rawContent *signalpb.Content) bool {
 		return isSyncMessageUrgent(content.SyncMessage)
 	case *signalpb.Content_DataMessage,
 		*signalpb.Content_EditMessage,
-		*signalpb.Content_CallMessage,
-		*signalpb.Content_StoryMessage:
+		*signalpb.Content_CallMessage:
 		return true
 	default:
 		return false
@@ -850,7 +849,7 @@ func getContentHint(rawContent *signalpb.Content) libsignalgo.UnidentifiedSender
 	switch rawContent.Content.(type) {
 	case *signalpb.Content_DataMessage, *signalpb.Content_EditMessage:
 		return libsignalgo.UnidentifiedSenderMessageContentHintResendable
-	case *signalpb.Content_TypingMessage, *signalpb.Content_ReceiptMessage:
+	case *signalpb.Content_TypingMessage, *signalpb.Content_ReceiptMessage, *signalpb.Content_StoryMessage:
 		return libsignalgo.UnidentifiedSenderMessageContentHintImplicit
 	default:
 		return libsignalgo.UnidentifiedSenderMessageContentHintDefault
@@ -901,7 +900,10 @@ func (cli *Client) sendContent(
 		useUnidentifiedSender = false
 	}
 	var accessKey *libsignalgo.AccessKey
-	if useUnidentifiedSender {
+	if content.GetStoryMessage() != nil {
+		// Story endpoints omit sender identity; always use sealed sender, even without a recipient profile key.
+		useUnidentifiedSender = true
+	} else if useUnidentifiedSender {
 		profileKey, err := cli.ProfileKeyForSignalID(ctx, recipient.UUID)
 		if err != nil {
 			return false, fmt.Errorf("failed to get profile key: %w", err)
@@ -938,14 +940,16 @@ func (cli *Client) sendContent(
 	if err != nil {
 		return false, err
 	}
-	path := fmt.Sprintf("/v1/messages/%s", recipient)
+	path := messageSendPath(recipient, content)
 
 	var response *signalpb.WebSocketResponseMessage
 	header := http.Header{}
 	header.Set("Content-Type", string(web.ContentTypeJSON))
 	if useUnidentifiedSender {
 		log.Trace().Msg("Sending message over unidentified WS")
-		header.Set("Unidentified-Access-Key", accessKey.String())
+		if content.GetStoryMessage() == nil {
+			header.Set("Unidentified-Access-Key", accessKey.String())
+		}
 		response, err = cli.UnauthedWS.SendRequest(ctx, http.MethodPut, path, jsonBytes, header)
 	} else {
 		log.Trace().Msg("Sending message over authed WS")

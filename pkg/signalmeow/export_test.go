@@ -51,3 +51,10 @@ func (cli *Client) IncomingStoryForTest(ctx context.Context, msg *signalpb.Story
 func (cli *Client) HandleDecryptedStoryForTest(ctx context.Context, result DecryptionResult, envelope *signalpb.Envelope, destination libsignalgo.ServiceID) error {
 	return cli.handleDecryptedResult(ctx, result, envelope, destination)
 }
+
+func SendGroupStoryWithForTest(ctx context.Context, group *Group, story *signalpb.StoryMessage, timestamp uint64, self uuid.UUID, send func(context.Context, libsignalgo.ServiceID, uint64, *signalpb.Content, *libsignalgo.GroupIdentifier) (bool, error)) (*GroupStorySendResult, error) {
+	return sendGroupStoryWith(ctx, group, story, timestamp, self, send)
+}
+func MessageWirePolicyForTest(recipient libsignalgo.ServiceID, content *signalpb.Content) (string, bool, libsignalgo.UnidentifiedSenderMessageContentHint) {
+	return messageSendPath(recipient, content), isUrgent(content), getContentHint(content)
+}
