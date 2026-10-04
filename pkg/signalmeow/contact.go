@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -125,21 +126,17 @@ func unmarshalContactDetailsMessages(byteStream []byte) ([]*signalpb.ContactDeta
 	var avatarList [][]byte
 	buf := bytes.NewBuffer(byteStream)
 
-	for {
-		// If no more bytes are left to read, break the loop
-		if buf.Len() == 0 {
-			break
-		}
-
+	for buf.Len() > 0 {
 		// Read the length prefix (varint) of the next Protobuf message
 		msgLen, err := binary.ReadUvarint(buf)
 		if err != nil {
-			return nil, nil, fmt.Errorf("Failed to read message length: %v", err)
+			return nil, nil, fmt.Errorf("read contact message length: %w", err)
 		}
 
-		// If no more bytes are left to read, break the loop
-		if buf.Len() == 0 {
-			break
+		// Check the uint64 wire length before converting to int. Zero-length
+		// records are valid protobuf messages, including at the end of a stream.
+		if msgLen > uint64(buf.Len()) {
+			return nil, nil, fmt.Errorf("truncated contact message: %w", io.ErrUnexpectedEOF)
 		}
 
 		// Read the Protobuf message using the length obtained
@@ -148,7 +145,7 @@ func unmarshalContactDetailsMessages(byteStream []byte) ([]*signalpb.ContactDeta
 		// Unmarshal the Protobuf message into a ContactDetails object
 		contactDetails := &signalpb.ContactDetails{}
 		if err := proto.Unmarshal(msgBytes, contactDetails); err != nil {
-			return nil, nil, fmt.Errorf("Failed to unmarshal ContactDetails: %v", err)
+			return nil, nil, fmt.Errorf("unmarshal contact details: %w", err)
 		}
 
 		// Append the ContactDetails object to the result slice
@@ -156,6 +153,9 @@ func unmarshalContactDetailsMessages(byteStream []byte) ([]*signalpb.ContactDeta
 
 		// If the ContactDetails object has an avatar, read it into a byte slice
 		if contactDetails.Avatar != nil && contactDetails.Avatar.Length != nil && *contactDetails.Avatar.Length > 0 {
+			if uint64(*contactDetails.Avatar.Length) > uint64(buf.Len()) {
+				return nil, nil, fmt.Errorf("truncated contact avatar: %w", io.ErrUnexpectedEOF)
+			}
 			avatarBytes := buf.Next(int(*contactDetails.Avatar.Length))
 			// TODO why is this making a copy?
 			avatarBytesCopy := make([]byte, len(avatarBytes))

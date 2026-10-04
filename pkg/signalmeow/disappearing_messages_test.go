@@ -117,6 +117,48 @@ func TestContactSyncTimersTransactionFailure(t *testing.T) {
 	}
 }
 
+func TestContactSyncTimersMalformedFrames(t *testing.T) {
+	for _, frame := range malformedContactFrames(t) {
+		t.Run(frame.name, func(t *testing.T) {
+			device, _, fixture := timerDevice(t)
+			cli := signalmeow.NewClient(device, zerolog.Nop(), func(events.SignalEvent) bool {
+				t.Fatal("contact storage helper emitted an event")
+				return true
+			})
+			list, err := cli.StoreContactSyncForTest(context.Background(), frame.data)
+			if list != nil || err == nil {
+				t.Errorf("malformed frame returned list=%v error=%v; want nil/error", list, err)
+			}
+			checkNoPartialContactStorage(t, device, fixture)
+		})
+	}
+}
+
+func TestContactSyncTimersEmptyFrames(t *testing.T) {
+	contact := &signalpb.ContactDetails{Aci: proto.String(timerACI.String()), Name: proto.String("valid"), ExpireTimer: proto.Uint32(60), ExpireTimerVersion: proto.Uint32(3)}
+	valid := contactBytes(t, contact)
+	for _, frame := range []struct {
+		name         string
+		data         []byte
+		wantContacts int
+	}{
+		{"empty attachment", nil, 0},
+		{"zero-length record", []byte{0}, 0},
+		{"leading zero-length record", append([]byte{0}, valid...), 1},
+		{"trailing zero-length record", append(bytes.Clone(valid), 0), 1},
+	} {
+		t.Run(frame.name, func(t *testing.T) {
+			device, _, _ := timerDevice(t)
+			cli := signalmeow.NewClient(device, zerolog.Nop(), func(events.SignalEvent) bool { return true })
+			list, err := cli.StoreContactSyncForTest(context.Background(), frame.data)
+			joinCheck(t, err)
+			if list == nil || len(list.Contacts) != frame.wantContacts || len(list.Timers) != frame.wantContacts {
+				t.Fatalf("empty-frame semantics changed: %v; want %d contacts/timers", list, frame.wantContacts)
+			}
+		})
+	}
+}
+
 type timerSessions struct{ store.SessionStore }
 
 func (timerSessions) AllSessionsForServiceID(context.Context, libsignalgo.ServiceID) ([]store.SessionAddressTuple, error) {

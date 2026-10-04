@@ -196,6 +196,78 @@ func contactSync(pointer *signalpb.AttachmentPointer) *signalpb.SyncMessage {
 	return &signalpb.SyncMessage{Content: &signalpb.SyncMessage_Contacts_{Contacts: &signalpb.SyncMessage_Contacts{Blob: pointer}}}
 }
 
+func malformedContactFrames(t *testing.T) []struct {
+	name string
+	data []byte
+} {
+	t.Helper()
+	first := contactBytes(t, &signalpb.ContactDetails{Aci: proto.String(timerACI.String()), Name: proto.String("valid first"), ExpireTimer: proto.Uint32(60), ExpireTimerVersion: proto.Uint32(3)})
+	second := &signalpb.ContactDetails{Aci: proto.String("10000000-0000-0000-0000-000000000009"), Name: proto.String("second")}
+	rawSecond, err := proto.Marshal(second)
+	joinCheck(t, err)
+	longMessage := binary.AppendUvarint(bytes.Clone(first), uint64(len(rawSecond)+1))
+	longMessage = append(longMessage, rawSecond...)
+	second.Avatar = &signalpb.ContactDetails_Avatar{ContentType: proto.String("image/png"), Length: proto.Uint32(5)}
+	shortAvatar := append(bytes.Clone(first), contactBytes(t, second)...)
+	shortAvatar = append(shortAvatar, 1, 2)
+	return []struct {
+		name string
+		data []byte
+	}{
+		{"lone nonzero prefix", append(bytes.Clone(first), 0x01)},
+		{"declared message exceeds remaining protobuf", longMessage},
+		{"incomplete varint", append(bytes.Clone(first), 0x80)},
+		{"short advertised avatar", shortAvatar},
+		{"uint64 length exceeds buffer", binary.AppendUvarint(bytes.Clone(first), ^uint64(0))},
+	}
+}
+
+func checkNoPartialContactStorage(t *testing.T, device *store.Device, fixture *timerDB) {
+	t.Helper()
+	if fixture != nil {
+		return
+	}
+	contacts, err := device.RecipientStore.LoadAllContacts(context.Background())
+	joinCheck(t, err)
+	if len(contacts) != 0 {
+		t.Errorf("malformed contact attachment partially stored %d contacts", len(contacts))
+	}
+}
+
+func TestSyncContactAckFailureMalformedFrames(t *testing.T) {
+	for _, frame := range malformedContactFrames(t) {
+		t.Run(frame.name, func(t *testing.T) {
+			device, _, fixture := timerDevice(t)
+			calls := 0
+			cli := signalmeow.NewClient(device, zerolog.Nop(), func(events.SignalEvent) bool { calls++; return true })
+			ack := cli.HandleSyncMessageForTest(context.Background(), contactSync(timerAttachment(t, frame.data, false)), &signalpb.Envelope{})
+			if ack || calls != 0 {
+				t.Errorf("malformed frame ack=%v events=%d; want false/0", ack, calls)
+			}
+			checkNoPartialContactStorage(t, device, fixture)
+		})
+	}
+}
+
+func TestSyncContactEmptyFrames(t *testing.T) {
+	for _, data := range [][]byte{nil, {0}} {
+		device, _, _ := timerDevice(t)
+		calls := 0
+		cli := signalmeow.NewClient(device, zerolog.Nop(), func(event events.SignalEvent) bool {
+			list, ok := event.(*events.ContactList)
+			if !ok || len(list.Contacts) != 0 || len(list.Timers) != 0 {
+				t.Fatalf("unexpected empty contact event: %v", event)
+			}
+			calls++
+			return true
+		})
+		ack := cli.HandleSyncMessageForTest(context.Background(), contactSync(timerAttachment(t, data, false)), &signalpb.Envelope{})
+		if !ack || calls != 1 {
+			t.Fatalf("empty-frame ack=%v events=%d; want true/1", ack, calls)
+		}
+	}
+}
+
 func TestSyncSentAckFailure(t *testing.T) {
 	for _, edit := range []bool{false, true} {
 		for _, success := range []bool{false, true} {
