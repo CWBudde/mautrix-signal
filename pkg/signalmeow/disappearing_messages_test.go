@@ -93,6 +93,47 @@ func TestContactSyncTimers(t *testing.T) {
 
 }
 
+func TestContactSyncAvatarWithoutContentType(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		contentType *string
+		want        string
+	}{
+		{name: "absent", want: "image/png"},
+		{name: "explicit", contentType: proto.String("image/custom"), want: "image/custom"},
+		{name: "explicit empty", contentType: proto.String(""), want: ""},
+		{name: "wildcard", contentType: proto.String("image/*"), want: "image/png"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			device, _, _ := timerDevice(t)
+			cli := signalmeow.NewClient(device, zerolog.Nop(), func(events.SignalEvent) bool {
+				t.Fatal("contact storage helper emitted an event")
+				return true
+			})
+			avatar := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+			contact := &signalpb.ContactDetails{
+				Aci: proto.String(timerACI.String()), Name: proto.String("avatar contact"),
+				Avatar:      &signalpb.ContactDetails_Avatar{Length: proto.Uint32(uint32(len(avatar))), ContentType: test.contentType},
+				ExpireTimer: proto.Uint32(60), ExpireTimerVersion: proto.Uint32(3),
+			}
+			raw := append(contactBytes(t, contact), avatar...)
+			list, err := cli.StoreContactSyncForTest(context.Background(), raw)
+			joinCheck(t, err)
+			if list == nil || len(list.Contacts) != 1 || len(list.Timers) != 1 || list.IsFromDB {
+				t.Fatalf("contact sync returned incomplete metadata: %v", list)
+			}
+			stored := list.Contacts[0]
+			if stored.ACI != timerACI || stored.ContactAvatar.ContentType != test.want || !bytes.Equal(stored.ContactAvatar.Image, avatar) {
+				t.Fatalf("contact avatar = %+v; want ACI %s, MIME %q and PNG bytes", stored, timerACI, test.want)
+			}
+			timer := list.Timers[0]
+			if timer.ACI != timerACI || timer.ExpireTimer == nil || *timer.ExpireTimer != 60 || timer.ExpireTimerVersion == nil || *timer.ExpireTimerVersion != 3 {
+				t.Fatalf("contact timer metadata lost: %+v", timer)
+			}
+		})
+	}
+}
+
 func TestContactSyncTimersTransactionFailure(t *testing.T) {
 	device, _, fixture := timerDevice(t)
 	second := uuid.MustParse("10000000-0000-0000-0000-000000000008")

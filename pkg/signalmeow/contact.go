@@ -58,7 +58,7 @@ func (cli *Client) StoreContactDetailsAsContact(ctx context.Context, contactDeta
 			rawHash := sha256.Sum256(*avatar)
 			avatarHash := hex.EncodeToString(rawHash[:])
 			var contentType string
-			if avatarDetails := contactDetails.GetAvatar(); avatarDetails != nil && !strings.HasSuffix(avatarDetails.GetContentType(), "/*") {
+			if avatarDetails := contactDetails.GetAvatar(); avatarDetails != nil && avatarDetails.ContentType != nil && !strings.HasSuffix(avatarDetails.GetContentType(), "/*") {
 				contentType = *avatarDetails.ContentType
 			} else {
 				contentType = http.DetectContentType(*avatar)
