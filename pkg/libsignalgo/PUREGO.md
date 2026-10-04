@@ -231,3 +231,14 @@ Existing public send signatures are unchanged. Offline tests exercise these
 paths on both backends, with real SQLite rollback checks on cgo and a narrow
 controlled transaction/device fixture without cgo. Preserve this extension when
 rebasing until upstream offers equivalent metadata and acknowledgement behavior.
+
+## QR provisioning refresh extension in signalmeow
+
+`PerformProvisioningWithQRRefresh` accepts an idle scan interval. It closes each expired
+socket and obtains a fresh provisioning address and key, stopping on caller cancellation.
+The existing `PerformProvisioning` retains its one-shot two-minute wait. Transport and
+protocol failures are terminal. Once a provisioning message arrives, acknowledgement,
+decryption and registration errors cannot renew the QR or attempt a second registration.
+Registration and device storage continue on the caller context, outside the scan deadline.
+Offline tests use real websocket/protobuf and encrypted-envelope exchanges over `net.Pipe`
+with fake time; phone acceptance is separate. Preserve this extension when rebasing.

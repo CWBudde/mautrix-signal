@@ -86,41 +86,33 @@ func (dle DeviceLinkError) Error() string {
 }
 
 func PerformProvisioning(ctx context.Context, deviceStore store.DeviceStore, deviceName string, allowBackup bool) chan ProvisioningResponse {
+	return performProvisioning(ctx, deviceStore, deviceName, allowBackup, 0)
+}
+
+// PerformProvisioningWithQRRefresh replaces an unscanned QR code with a fresh socket,
+// address and key every refreshInterval. Refresh stops when a provisioning envelope
+// arrives, before decryption and device registration. Only a local scan timeout is
+// retried; caller cancellation, transport failures and invalid messages are terminal.
+// A non-positive interval retains PerformProvisioning's one-shot two-minute wait.
+// The caller must consume responses until the channel closes, including after cancellation.
+func PerformProvisioningWithQRRefresh(ctx context.Context, deviceStore store.DeviceStore, deviceName string, allowBackup bool, refreshInterval time.Duration) chan ProvisioningResponse {
+	return performProvisioning(ctx, deviceStore, deviceName, allowBackup, refreshInterval)
+}
+
+func performProvisioning(ctx context.Context, deviceStore store.DeviceStore, deviceName string, allowBackup bool, refreshInterval time.Duration) chan ProvisioningResponse {
 	log := zerolog.Ctx(ctx).With().Str("action", "perform provisioning").Logger()
 	c := make(chan ProvisioningResponse, 4)
 	go func() {
 		defer close(c)
 
-		timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-		ws, resp, err := web.OpenWebsocket(timeoutCtx, (&url.URL{
-			Scheme: "wss",
-			Host:   web.APIHostname,
-			Path:   web.WebsocketProvisioningPath,
-		}).String())
+		provisioningMessage, err := awaitProvisioningMessage(ctx, allowBackup, refreshInterval, openProvisioningSocket, func(uri string) {
+			c <- ProvisioningResponse{State: StateProvisioningURLReceived, ProvisioningURL: uri}
+		})
 		if err != nil {
-			log.Err(err).Any("resp", resp).Msg("error opening provisioning websocket")
+			log.Err(err).Msg("provisioning scan failed")
 			c <- ProvisioningResponse{State: StateProvisioningError, Err: err}
 			return
 		}
-		defer ws.Close(websocket.StatusInternalError, "Websocket StatusInternalError")
-		provisioningCipher := NewProvisioningCipher()
-
-		provisioningURL, err := startProvisioning(timeoutCtx, ws, provisioningCipher, allowBackup)
-		if err != nil {
-			log.Err(err).Msg("startProvisioning error")
-			c <- ProvisioningResponse{State: StateProvisioningError, Err: err}
-			return
-		}
-		c <- ProvisioningResponse{State: StateProvisioningURLReceived, ProvisioningURL: provisioningURL, Err: err}
-
-		provisioningMessage, err := continueProvisioning(timeoutCtx, ws, provisioningCipher)
-		if err != nil {
-			log.Err(err).Msg("continueProvisioning error")
-			c <- ProvisioningResponse{State: StateProvisioningError, Err: err}
-			return
-		}
-		ws.Close(websocket.StatusNormalClosure, "")
 
 		aciPublicKey := exerrors.Must(libsignalgo.DeserializePublicKey(provisioningMessage.GetAciIdentityKeyPublic()))
 		aciPrivateKey := exerrors.Must(libsignalgo.DeserializePrivateKey(provisioningMessage.GetAciIdentityKeyPrivate()))
@@ -301,7 +293,7 @@ func startProvisioning(ctx context.Context, ws *websocket.Conn, provisioningCiph
 	return provisioningURL, nil
 }
 
-func continueProvisioning(ctx context.Context, ws *websocket.Conn, provisioningCipher *ProvisioningCipher) (*signalpb.ProvisionMessage, error) {
+func readProvisioningEnvelope(ctx context.Context, ws *websocket.Conn) (*signalpb.ProvisionEnvelope, error) {
 	log := zerolog.Ctx(ctx).With().Str("action", "continue provisioning").Logger()
 	envelope := &signalpb.ProvisionEnvelope{}
 	msg := &signalpb.WebSocketMessage{}
@@ -312,28 +304,27 @@ func continueProvisioning(ctx context.Context, ws *websocket.Conn, provisioningC
 	}
 
 	// Wait for provisioning message in a request, then send a response
-	if *msg.Type == signalpb.WebSocketMessage_REQUEST &&
-		*msg.Request.Verb == http.MethodPut &&
-		*msg.Request.Path == "/v1/message" {
+	if msg.GetType() == signalpb.WebSocketMessage_REQUEST &&
+		msg.GetRequest().GetVerb() == http.MethodPut &&
+		msg.GetRequest().GetPath() == "/v1/message" {
 
-		err = proto.Unmarshal(msg.Request.Body, envelope)
+		err = proto.Unmarshal(msg.GetRequest().GetBody(), envelope)
 		if err != nil {
-			return nil, err
+			return envelope, err
 		}
 
-		response := web.CreateWSResponse(ctx, *msg.Request.Id, 200)
+		response := web.CreateWSResponse(ctx, msg.GetRequest().GetId(), 200)
 		err = wspb.Write(ctx, ws, response)
 		if err != nil {
 			log.Err(err).Msg("error writing websocket message")
-			return nil, err
+			return envelope, err
 		}
 	} else {
-		err = fmt.Errorf("invalid provisioning message, type: %v, verb: %v, path: %v", *msg.Type, *msg.Request.Verb, *msg.Request.Path)
+		err = fmt.Errorf("invalid provisioning message, type: %v, verb: %v, path: %v", msg.GetType(), msg.GetRequest().GetVerb(), msg.GetRequest().GetPath())
 		log.Err(err).Msg("problem reading websocket message")
-		return nil, err
+		return envelope, err
 	}
-	provisioningMessage, err := provisioningCipher.Decrypt(envelope)
-	return provisioningMessage, err
+	return envelope, nil
 }
 
 var signalCapabilities = map[string]any{
