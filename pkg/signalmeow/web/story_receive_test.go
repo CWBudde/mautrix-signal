@@ -2,11 +2,12 @@ package web_test
 
 import (
 	"context"
-	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
 
 func TestStoryReceiveNegotiation(t *testing.T) {

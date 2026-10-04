@@ -5,12 +5,14 @@ package signalmeow
 
 import (
 	"context"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+
 	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/events"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
-	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 )
 
 // incomingStoryMessage deliberately sends no delivery or read receipts.

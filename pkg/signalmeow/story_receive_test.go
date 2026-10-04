@@ -3,16 +3,18 @@ package signalmeow_test
 import (
 	"context"
 	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/events"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/store"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
-	"github.com/google/uuid"
-	"github.com/rs/zerolog"
-	"google.golang.org/protobuf/proto"
-	"testing"
 )
 
 func TestStoryReceiveHandler(t *testing.T) {
