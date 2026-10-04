@@ -75,8 +75,15 @@ type Call struct {
 	IsRinging bool
 }
 
+// ContactTimer retains field presence from a successfully converted sync contact.
+type ContactTimer struct {
+	ACI                             uuid.UUID
+	ExpireTimer, ExpireTimerVersion *uint32
+}
+
 type ContactList struct {
 	Contacts []*types.Recipient
+	Timers   []ContactTimer
 	IsFromDB bool
 }
 

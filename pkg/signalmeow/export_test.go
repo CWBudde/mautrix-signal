@@ -5,13 +5,28 @@ package signalmeow
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/events"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/store"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
 )
+
+func (cli *Client) HandleSyncMessageForTest(ctx context.Context, msg *signalpb.SyncMessage, envelope *signalpb.Envelope) bool {
+	return cli.handleSyncMessage(ctx, msg, envelope)
+}
+
+func (cli *Client) StoreContactSyncForTest(ctx context.Context, data []byte) (*events.ContactList, error) {
+	return cli.storeContactSync(ctx, data)
+}
+
+func (cli *Client) SeedGroupCacheForTest(group *Group) {
+	cli.GroupCache.data[group.GroupIdentifier] = &cachedGroup{Group: group, SendEndorsementCache: &SendEndorsementCache{Expiration: time.Now().Add(time.Hour)}}
+}
 
 // Authorization is injected; preview transport and validation are production code.
 func PreviewGroupJoinRequestForTest(ctx context.Context, key types.SerializedGroupMasterKey) (GroupJoinPreview, error) {

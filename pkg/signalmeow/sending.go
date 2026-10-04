@@ -562,14 +562,13 @@ func (cli *Client) SendGroupMessage(ctx context.Context, gid types.GroupIdentifi
 	if err != nil {
 		return nil, err
 	}
+	stampGroupMessage(content, group)
 	var messageTimestamp uint64
 	switch content := content.Content.(type) {
 	case *signalpb.Content_DataMessage:
 		messageTimestamp = content.DataMessage.GetTimestamp()
-		content.DataMessage.GroupV2 = groupMetadataForDataMessage(*group)
 	case *signalpb.Content_EditMessage:
 		messageTimestamp = content.EditMessage.DataMessage.GetTimestamp()
-		content.EditMessage.DataMessage.GroupV2 = groupMetadataForDataMessage(*group)
 	case *signalpb.Content_TypingMessage:
 		messageTimestamp = content.TypingMessage.GetTimestamp()
 		groupIDBytes, err := group.GroupIdentifier.Bytes()

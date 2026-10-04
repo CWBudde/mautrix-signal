@@ -768,9 +768,9 @@ func (cli *Client) handleSyncMessage(ctx context.Context, msg *signalpb.SyncMess
 				log.Warn().Msg("sync message sent destination is nil")
 			} else if syncSent.Message != nil {
 				// TODO handle expiration start ts, and maybe the sync message ts?
-				cli.incomingDataMessage(ctx, syncSent.Message, cli.Store.ACI, syncDestinationServiceID, envelope.GetServerTimestamp(), false)
+				handlerSuccess, _ = cli.incomingDataMessage(ctx, syncSent.Message, cli.Store.ACI, syncDestinationServiceID, envelope.GetServerTimestamp(), false)
 			} else if syncSent.EditMessage != nil {
-				cli.incomingEditMessage(ctx, syncSent.EditMessage, cli.Store.ACI, syncDestinationServiceID, envelope.GetServerTimestamp(), false)
+				handlerSuccess, _ = cli.incomingEditMessage(ctx, syncSent.EditMessage, cli.Store.ACI, syncDestinationServiceID, envelope.GetServerTimestamp(), false)
 			}
 		}
 	case *signalpb.SyncMessage_Contacts_:
@@ -780,38 +780,15 @@ func (cli *Client) handleSyncMessage(ctx context.Context, msg *signalpb.SyncMess
 			contactsBytes, err := DownloadAttachmentWithPointer(ctx, content.Contacts.Blob, nil, nil)
 			if err != nil {
 				log.Err(err).Msg("Contacts Sync DownloadAttachment error")
+				return false
 			}
-			// unmarshall contacts
-			contacts, avatars, err := unmarshalContactDetailsMessages(contactsBytes)
+			contacts, err := cli.storeContactSync(ctx, contactsBytes)
 			if err != nil {
-				log.Err(err).Msg("Contacts Sync unmarshalContactDetailsMessages error")
+				log.Err(err).Msg("Contacts Sync storeContactSync error")
+				return false
 			}
-			log.Debug().Int("contact_count", len(contacts)).Msg("Contacts Sync received contacts")
-			convertedContacts := make([]*types.Recipient, 0, len(contacts))
-			err = cli.Store.DoContactTxn(ctx, func(ctx context.Context) error {
-				for i, signalContact := range contacts {
-					if (signalContact.Aci == nil || *signalContact.Aci == "") && len(signalContact.AciBinary) != 16 {
-						// TODO lookup PNI via CDSI and store that when ACI is missing?
-						log.Info().
-							Any("contact", signalContact).
-							Msg("Signal Contact UUID is nil, skipping")
-						continue
-					}
-					contact, err := cli.StoreContactDetailsAsContact(ctx, signalContact, &avatars[i])
-					if err != nil {
-						return err
-					}
-					convertedContacts = append(convertedContacts, contact)
-				}
-				return nil
-			})
-			if err != nil {
-				log.Err(err).Msg("Error storing contacts")
-			} else {
-				handlerSuccess = cli.handleEvent(&events.ContactList{
-					Contacts: convertedContacts,
-				})
-			}
+			log.Debug().Int("contact_count", len(contacts.Contacts)).Msg("Contacts Sync received contacts")
+			handlerSuccess = cli.handleEvent(contacts)
 		}
 	case *signalpb.SyncMessage_DeleteForMe_:
 		handlerSuccess = cli.handleEvent(&events.DeleteForMe{

@@ -211,3 +211,23 @@ password-free wire bytes, disabled links, approval conflicts, strict signed
 binding, partial outcomes, refusals, bounds and privacy. Live requester
 cancellation and administrator visibility remain separately opt-in. Preserve
 this extension alongside join and acceptance when rebasing.
+
+## Disappearing-message metadata and acknowledgement extension in signalmeow
+
+Contact sync events include `ContactList.Timers`, paired with successfully stored
+contacts using each converted recipient's ACI. `ContactTimer` owns its optional
+`ExpireTimer` and `ExpireTimerVersion` values, preserving missing fields and
+explicit zero. Decode, download or contact transaction failures emit no contact
+list and return a failed acknowledgement. Events read from the storage database
+(`IsFromDB`) do not carry timer metadata. Timer persistence and learning policy
+remain the caller's responsibility.
+
+Sent transcripts, including nested edits, propagate the event handler's success
+as their acknowledgement. Group sends stamp ordinary and nested edit messages
+with the retrieved group's context and disappearing-message duration, including
+an explicit zero, and clear the direct-chat timer version. Both values come
+from the same group retrieval; typing retains its existing group-ID behavior.
+Existing public send signatures are unchanged. Offline tests exercise these
+paths on both backends, with real SQLite rollback checks on cgo and a narrow
+controlled transaction/device fixture without cgo. Preserve this extension when
+rebasing until upstream offers equivalent metadata and acknowledgement behavior.
