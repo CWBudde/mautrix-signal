@@ -666,7 +666,7 @@ func (cli *Client) handleDecryptedResult(
 	case *signalpb.Content_NullMessage:
 		// This is intentionally ignored
 	case *signalpb.Content_StoryMessage:
-		// This is also ignored for now
+		handlerSuccess = cli.incomingStoryMessage(ctx, content.StoryMessage, theirServiceID.UUID, theirServiceID, envelope.GetClientTimestamp(), envelope.GetServerTimestamp(), isBlocked)
 	default:
 		if rawContent.PniSignatureMessage == nil && rawContent.SenderKeyDistributionMessage == nil {
 			log.Warn().Type("content_type", content).Msg("Unrecognized message content type")
@@ -731,6 +731,11 @@ func (cli *Client) handleSyncMessage(ctx context.Context, msg *signalpb.SyncMess
 		}
 	case *signalpb.SyncMessage_Sent_:
 		syncSent := content.Sent
+		if syncSent.GetStoryMessage() != nil {
+			// Private stories have an audience rather than a single chat destination.
+			handlerSuccess = cli.incomingStoryMessage(ctx, syncSent.GetStoryMessage(), cli.Store.ACI, cli.Store.ACIServiceID(), syncSent.GetTimestamp(), envelope.GetServerTimestamp(), false)
+			return
+		}
 		if syncSent.GetMessage() != nil || syncSent.GetEditMessage() != nil {
 			syncDestinationServiceID, err := ParseStringOrBinaryServiceID(syncSent.GetDestinationServiceId(), syncSent.GetDestinationServiceIdBinary())
 			if err != nil && !errors.Is(err, ErrEmptyUUIDInput) {

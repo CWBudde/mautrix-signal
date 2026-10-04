@@ -5,6 +5,7 @@ package web
 
 import (
 	"context"
+	"net/http"
 	"sync"
 
 	"github.com/coder/websocket"
@@ -25,4 +26,8 @@ func RunWebsocketLoopsForTest(ctx context.Context, conn *websocket.Conn) (*Signa
 	go func() { defer wg.Done(); _ = readLoop(ctx, conn, incoming, responses) }()
 	go func() { defer wg.Done(); _ = writeLoop(ctx, conn, socket.sendChannel, responses) }()
 	return socket, func() { cancel(); _ = conn.CloseNow(); wg.Wait() }
+}
+
+func OpenStoryWebsocketForTest(ctx context.Context, url string, allow bool) (*websocket.Conn, *http.Response, error) {
+	return openWebsocket(ctx, url, allow)
 }

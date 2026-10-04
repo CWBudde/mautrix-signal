@@ -51,15 +51,17 @@ type SimpleResponse struct {
 type RequestHandlerFunc func(context.Context, *signalpb.WebSocketRequestMessage) (*SimpleResponse, error)
 
 type SignalWebsocket struct {
-	ws            atomic.Pointer[websocket.Conn]
-	basicAuth     *url.Userinfo
-	sendChannel   chan SignalWebsocketSendMessage
-	statusChannel chan SignalWebsocketConnectionStatus
-	closeLock     sync.RWMutex
-	closeEvt      *exsync.Event
-	closeCalled   atomic.Bool
-	cancel        atomic.Pointer[context.CancelFunc]
-	cancelConn    atomic.Pointer[context.CancelCauseFunc]
+	// ReceiveStories opts into story delivery; configure before Connect.
+	ReceiveStories bool
+	ws             atomic.Pointer[websocket.Conn]
+	basicAuth      *url.Userinfo
+	sendChannel    chan SignalWebsocketSendMessage
+	statusChannel  chan SignalWebsocketConnectionStatus
+	closeLock      sync.RWMutex
+	closeEvt       *exsync.Event
+	closeCalled    atomic.Bool
+	cancel         atomic.Pointer[context.CancelFunc]
+	cancelConn     atomic.Pointer[context.CancelCauseFunc]
 }
 
 func NewSignalWebsocket(basicAuth *url.Userinfo) *SignalWebsocket {
@@ -283,7 +285,7 @@ func (s *SignalWebsocket) connectLoop(
 		}
 		isFirstConnect = false
 
-		ws, resp, err := OpenWebsocket(ctx, wsURL)
+		ws, resp, err := openWebsocket(ctx, wsURL, s.ReceiveStories)
 		if resp != nil {
 			if resp.StatusCode != 101 {
 				// Server didn't want to open websocket
@@ -682,12 +684,20 @@ func (s *SignalWebsocket) sendRequestInternal(
 }
 
 func OpenWebsocket(ctx context.Context, url string) (*websocket.Conn, *http.Response, error) {
+	return openWebsocket(ctx, url, false)
+}
+func openWebsocket(ctx context.Context, url string, receiveStories bool) (*websocket.Conn, *http.Response, error) {
 	opt := &websocket.DialOptions{
 		HTTPClient: SignalHTTPClient,
 		HTTPHeader: make(http.Header, 2),
 	}
 	opt.HTTPHeader.Set("User-Agent", UserAgent)
 	opt.HTTPHeader.Set("X-Signal-Agent", SignalAgent)
+	if receiveStories {
+		opt.HTTPHeader.Set("X-Signal-Receive-Stories", "true")
+	} else {
+		opt.HTTPHeader.Set("X-Signal-Receive-Stories", "false")
+	}
 	ws, resp, err := websocket.Dial(ctx, url, opt)
 	if ws != nil {
 		ws.SetReadLimit(1 << 20) // Increase read limit to 1MB from default of 32KB

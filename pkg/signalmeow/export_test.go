@@ -43,3 +43,11 @@ func GroupJoinRequestCancellationOnceForTest(ctx context.Context, key types.Seri
 		return &GroupAuth{Username: "test-user", Password: "test-auth"}, authErr
 	})
 }
+
+func (cli *Client) IncomingStoryForTest(ctx context.Context, msg *signalpb.StoryMessage, sender uuid.UUID, chat libsignalgo.ServiceID, timestamp, serverTimestamp uint64, blocked bool) bool {
+	return cli.incomingStoryMessage(ctx, msg, sender, chat, timestamp, serverTimestamp, blocked)
+}
+
+func (cli *Client) HandleDecryptedStoryForTest(ctx context.Context, result DecryptionResult, envelope *signalpb.Envelope, destination libsignalgo.ServiceID) error {
+	return cli.handleDecryptedResult(ctx, result, envelope, destination)
+}

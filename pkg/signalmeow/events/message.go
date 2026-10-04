@@ -108,3 +108,12 @@ type MessageRequestResponse struct {
 type QueueEmpty struct{}
 
 type LoggedOut struct{ Error error }
+
+// Story is a text or media story. Its timestamp is supplied by the envelope or sent transcript.
+type Story struct {
+	Info      MessageInfo
+	Timestamp uint64
+	Content   *signalpb.StoryMessage
+}
+
+func (*Story) isSignalEvent() {}
