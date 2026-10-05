@@ -58,3 +58,7 @@ func SendGroupStoryWithForTest(ctx context.Context, group *Group, story *signalp
 func MessageWirePolicyForTest(recipient libsignalgo.ServiceID, content *signalpb.Content) (string, bool, libsignalgo.UnidentifiedSenderMessageContentHint) {
 	return messageSendPath(recipient, content), isUrgent(content), getContentHint(content)
 }
+
+func SendPrivateStoryWithForTest(ctx context.Context, distribution uuid.UUID, recipients []uuid.UUID, story *signalpb.StoryMessage, timestamp uint64, self uuid.UUID, send func(context.Context, libsignalgo.ServiceID, uint64, *signalpb.Content, *libsignalgo.GroupIdentifier) (bool, error)) (*GroupStorySendResult, error) {
+	return sendPrivateStoryWith(ctx, distribution, recipients, story, timestamp, self, send)
+}
