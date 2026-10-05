@@ -196,7 +196,8 @@ func (s *SignalWebsocket) connectLoop(
 		close(incomingRequestChan)
 		close(s.statusChannel)
 		close(s.sendChannel)
-		incomingRequestChan = nil
+		// The handler goroutine still reads this captured channel. Keep the
+		// reference immutable; closing it above already signals shutdown.
 		s.statusChannel = nil
 		s.sendChannel = nil
 	}()

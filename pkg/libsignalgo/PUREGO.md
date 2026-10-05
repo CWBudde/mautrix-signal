@@ -242,3 +242,13 @@ decryption and registration errors cannot renew the QR or attempt a second regis
 Registration and device storage continue on the caller context, outside the scan deadline.
 Offline tests use real websocket/protobuf and encrypted-envelope exchanges over `net.Pipe`
 with fake time; phone acceptance is separate. Preserve this extension when rebasing.
+
+## Websocket shutdown race fix
+
+`SignalWebsocket.connectLoop` keeps its incoming request channel reference immutable
+after creation. Final cleanup closes the channel after the connection workers finish,
+without clearing the local variable captured by the request handler goroutine. A
+cancel-during-dial regression exercises the production lifecycle under the race detector;
+the mocked zkgroup/profile integration can also run with `-race`. Preserve this fix when
+rebasing until upstream incorporates it. This does not redesign the websocket lifecycle
+or establish that every shutdown and reconnect path is race-free.
