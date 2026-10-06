@@ -58,7 +58,8 @@ type SignalWebsocket struct {
 	sendChannel    chan SignalWebsocketSendMessage
 	statusChannel  chan SignalWebsocketConnectionStatus
 	closeLock      sync.RWMutex
-	closeEvt       *exsync.Event
+	stopping       chan struct{}
+	done           chan struct{}
 	closeCalled    atomic.Bool
 	cancel         atomic.Pointer[context.CancelFunc]
 	cancelConn     atomic.Pointer[context.CancelCauseFunc]
@@ -69,7 +70,8 @@ func NewSignalWebsocket(basicAuth *url.Userinfo) *SignalWebsocket {
 		basicAuth:     basicAuth,
 		sendChannel:   make(chan SignalWebsocketSendMessage),
 		statusChannel: make(chan SignalWebsocketConnectionStatus),
-		closeEvt:      exsync.NewEvent(),
+		stopping:      make(chan struct{}),
+		done:          make(chan struct{}),
 	}
 }
 
@@ -110,6 +112,8 @@ func (s *SignalWebsocket) IsConnected() bool {
 	return s.ws.Load() != nil
 }
 
+// Close waits for connection workers, the active request handler and channel cleanup.
+// A request handler must not call Close synchronously because it would wait for itself.
 func (s *SignalWebsocket) Close() (err error) {
 	if s == nil {
 		return nil
@@ -122,13 +126,19 @@ func (s *SignalWebsocket) Close() (err error) {
 	if cancelLoop := s.cancel.Swap(nil); cancelLoop != nil {
 		(*cancelLoop)()
 	}
-	<-s.closeEvt.GetChan()
+	<-s.done
 	return err
 }
 
+// Connect starts one lifecycle per websocket. The returned status channel is
+// closed after request-handler completion. Handlers must return on cancellation.
 func (s *SignalWebsocket) Connect(ctx context.Context, requestHandler RequestHandlerFunc) chan SignalWebsocketConnectionStatus {
-	go s.connectLoop(ctx, requestHandler)
-	return s.statusChannel
+	// Capture before launching cleanup; this channel has one lifecycle.
+	status := s.statusChannel
+	ctx, cancel := context.WithCancel(ctx)
+	s.cancel.Store(&cancel)
+	go s.connectLoop(ctx, cancel, requestHandler)
+	return status
 }
 
 func (s *SignalWebsocket) pushStatus(ctx context.Context, status SignalWebsocketConnectionEvent, err error) {
@@ -158,7 +168,7 @@ func (s *SignalWebsocket) pushOutgoing(ctx context.Context, send SignalWebsocket
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-s.closeEvt.GetChan():
+	case <-s.stopping:
 		return errors.New("connection closed before send could be queued")
 	}
 }
@@ -178,28 +188,28 @@ func (s *SignalWebsocket) ForceReconnect() {
 
 func (s *SignalWebsocket) connectLoop(
 	ctx context.Context,
+	cancel context.CancelFunc,
 	requestHandler RequestHandlerFunc,
 ) {
 	log := zerolog.Ctx(ctx).With().
 		Str("loop", "signal_websocket_connect_loop").
 		Logger()
-	ctx, cancel := context.WithCancel(ctx)
-	s.cancel.Store(&cancel)
-
 	incomingRequestChan := make(chan *signalpb.WebSocketRequestMessage, 256)
+	handlerDone := make(chan struct{})
 	defer func() {
-		s.closeEvt.Set()
+		// Stop blocked senders before taking closeLock. Completion is separate:
+		// Close must also wait for handlers and all channel cleanup.
+		close(s.stopping)
 		cancel()
-
-		s.closeLock.Lock()
-		defer s.closeLock.Unlock()
+		// All connection readers have joined. No producer can use this queue.
 		close(incomingRequestChan)
+		<-handlerDone
+		s.closeLock.Lock()
 		close(s.statusChannel)
 		close(s.sendChannel)
-		// The handler goroutine still reads this captured channel. Keep the
-		// reference immutable; closing it above already signals shutdown.
-		s.statusChannel = nil
 		s.sendChannel = nil
+		s.closeLock.Unlock()
+		close(s.done)
 	}()
 
 	const initialBackoff = 10 * time.Second
@@ -210,10 +220,17 @@ func (s *SignalWebsocket) connectLoop(
 		panic("Already connected")
 	}
 
+	// Shutdown waits for an active handler to return, but discards queued
+	// requests without acknowledging them so the service can redeliver them.
+	// Handlers must cooperate with cancellation and must not call Close.
 	// First set up request handler loop. This exists outside of the
 	// connection loops because we want to maintain it across reconnections
 	go func() {
+		defer close(handlerDone)
 		for {
+			if ctx.Err() != nil {
+				return
+			}
 			select {
 			case <-ctx.Done():
 				log.Info().Msg("ctx done, stopping request loop")
@@ -231,6 +248,10 @@ func (s *SignalWebsocket) connectLoop(
 					log.Fatal().Msg("Received request but no handler")
 				}
 
+				// Cancellation wins over a queued request selected during shutdown.
+				if ctx.Err() != nil {
+					return
+				}
 				// Handle the request with the request handler function
 				response, err := requestHandler(ctx, request)
 
@@ -416,11 +437,12 @@ func (s *SignalWebsocket) connectLoop(
 
 		// Clean up
 		ws.Close(websocket.StatusGoingAway, "Going away")
+		loopCancel(nil)
+		wg.Wait()
+		// The reader and writer no longer own or register pending entries.
 		for _, pending := range responseChannels.SwapData(nil) {
 			close(pending.channel)
 		}
-		loopCancel(nil)
-		wg.Wait()
 		log.Debug().Msg("Finished websocket cleanup")
 		if errorCount > 500 {
 			// Something is really wrong, we better panic.
@@ -467,7 +489,11 @@ func readLoop(
 				Str("request_verb", *msg.Request.Verb).
 				Str("request_path", *msg.Request.Path).
 				Msg("Received WS request")
-			incomingRequestChan <- msg.Request
+			select {
+			case incomingRequestChan <- msg.Request:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		} else if *msg.Type == signalpb.WebSocketMessage_RESPONSE {
 			if msg.Response == nil {
 				log.Fatal().Msg("Received response with no response")
@@ -659,7 +685,13 @@ func (s *SignalWebsocket) sendRequestInternal(
 	if err != nil {
 		return nil, err
 	}
-	response := <-responseChannel
+	var response *signalpb.WebSocketResponseMessage
+	select {
+	case response = <-responseChannel:
+	case <-ctx.Done():
+		// The reader or connection cleanup retains channel ownership.
+		return nil, ctx.Err()
+	}
 
 	isSelfDelete := request.GetVerb() == http.MethodDelete && strings.HasPrefix(request.GetPath(), "/v1/devices/")
 	if response == nil && !isSelfDelete {
