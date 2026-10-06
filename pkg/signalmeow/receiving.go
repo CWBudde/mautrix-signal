@@ -387,7 +387,8 @@ func (cli *Client) incomingAPIMessageHandler(ctx context.Context, req *signalpb.
 
 	result := cli.decryptEnvelope(ctx, envelope, sourceServiceID, destinationServiceID)
 
-	err = cli.handleDecryptedResult(ctx, result, envelope, destinationServiceID)
+	var afterAck func(context.Context)
+	err = cli.handleDecryptedResult(ctx, result, envelope, destinationServiceID, &afterAck)
 	if err != nil {
 		log.Err(err).Msg("Error handling decrypted result")
 		return nil, err
@@ -396,6 +397,8 @@ func (cli *Client) incomingAPIMessageHandler(ctx context.Context, req *signalpb.
 	return &web.SimpleResponse{
 		Status:        200,
 		WriteCallback: cli.writeCallback,
+		// The acknowledgement is queued first, so it neither waits for nor depends on this.
+		AfterQueued: afterAck,
 	}, nil
 }
 
@@ -412,11 +415,15 @@ func (cli *Client) writeCallback(preWriteTime time.Time) {
 var ErrHandlerFailed = errors.New("event handler returned non-success status")
 
 // TODO: we should split this up into multiple functions
+//
+// Work that has to wait until the envelope is acknowledged, i.e. the delivery receipt, is
+// stored in *afterAck instead of being done here.
 func (cli *Client) handleDecryptedResult(
 	ctx context.Context,
 	result DecryptionResult,
 	envelope *signalpb.Envelope,
 	destinationServiceID libsignalgo.ServiceID,
+	afterAck *func(context.Context),
 ) (retErr error) {
 	if errors.Is(result.Err, context.Canceled) {
 		return result.Err
@@ -689,9 +696,17 @@ func (cli *Client) handleDecryptedResult(
 	}
 
 	if sendDeliveryReceipt && handlerSuccess {
-		err = cli.sendDeliveryReceipts(ctx, []uint64{deliveryReceiptTS}, theirServiceID.UUID)
-		if err != nil {
-			log.Err(err).Msg("sendDeliveryReceipts error")
+		sender := theirServiceID.UUID
+		*afterAck = func(ctx context.Context) {
+			err := cli.sendDeliveryReceipts(ctx, []uint64{deliveryReceiptTS}, sender)
+			if err == nil {
+				return
+			} else if ctx.Err() != nil {
+				// The envelope is acknowledged; shutting down only costs the sender its receipt.
+				log.Warn().Err(err).Msg("Delivery receipt not sent before shutdown")
+			} else {
+				log.Err(err).Msg("sendDeliveryReceipts error")
+			}
 		}
 	}
 

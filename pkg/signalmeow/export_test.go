@@ -49,7 +49,15 @@ func (cli *Client) IncomingStoryForTest(ctx context.Context, msg *signalpb.Story
 }
 
 func (cli *Client) HandleDecryptedStoryForTest(ctx context.Context, result DecryptionResult, envelope *signalpb.Envelope, destination libsignalgo.ServiceID) error {
-	return cli.handleDecryptedResult(ctx, result, envelope, destination)
+	var afterAck func(context.Context)
+	return cli.handleDecryptedResult(ctx, result, envelope, destination, &afterAck)
+}
+
+// HandleDecryptedResultForTest also returns the work deferred until the acknowledgement.
+func (cli *Client) HandleDecryptedResultForTest(ctx context.Context, result DecryptionResult, envelope *signalpb.Envelope, destination libsignalgo.ServiceID) (func(context.Context), error) {
+	var afterAck func(context.Context)
+	err := cli.handleDecryptedResult(ctx, result, envelope, destination, &afterAck)
+	return afterAck, err
 }
 
 func SendGroupStoryWithForTest(ctx context.Context, group *Group, story *signalpb.StoryMessage, timestamp uint64, self uuid.UUID, send func(context.Context, libsignalgo.ServiceID, uint64, *signalpb.Content, *libsignalgo.GroupIdentifier) (bool, error)) (*GroupStorySendResult, error) {

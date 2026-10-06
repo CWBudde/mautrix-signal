@@ -47,6 +47,17 @@ const WebsocketPath = "/v1/websocket/"
 type SimpleResponse struct {
 	Status        int
 	WriteCallback func(time.Time)
+	// AfterQueued runs on the request-handler goroutine once the response has been queued
+	// for the writer, with the handler's context. Work that must not delay or decide the
+	// acknowledgement, such as delivery receipts, belongs here. It is skipped when the
+	// response could not be queued.
+	AfterQueued func(context.Context)
+}
+
+// requestProgress tracks the request being handled: queued closes once its response is
+// queued (or the handler finished without one), done once its AfterQueued work returned.
+type requestProgress struct {
+	queued, done chan struct{}
 }
 type RequestHandlerFunc func(context.Context, *signalpb.WebSocketRequestMessage) (*SimpleResponse, error)
 
@@ -63,6 +74,8 @@ type SignalWebsocket struct {
 	closeCalled    atomic.Bool
 	cancel         atomic.Pointer[context.CancelFunc]
 	cancelConn     atomic.Pointer[context.CancelCauseFunc]
+	// progress belongs to the latest request the handler goroutine started; nil before the first.
+	progress atomic.Pointer[requestProgress]
 }
 
 func NewSignalWebsocket(basicAuth *url.Userinfo) *SignalWebsocket {
@@ -112,6 +125,36 @@ func (s *SignalWebsocket) IsConnected() bool {
 	return s.ws.Load() != nil
 }
 
+// WaitResponseQueued waits until the request being handled, if any, has queued its
+// response for the writer or failed to, or finished without one. A request taken from the queue later
+// is not waited for. Requests are handled one at a time, so once a handler has handed an
+// event out, a caller that then calls WaitResponseQueued and SendRequest knows that the
+// acknowledgement precedes its request on the wire. It returns ctx's error if ctx ends first.
+func (s *SignalWebsocket) WaitResponseQueued(ctx context.Context) error {
+	return s.waitProgress(ctx, func(p *requestProgress) <-chan struct{} { return p.queued })
+}
+
+// WaitRequestDone is WaitResponseQueued including the request's AfterQueued work.
+func (s *SignalWebsocket) WaitRequestDone(ctx context.Context) error {
+	return s.waitProgress(ctx, func(p *requestProgress) <-chan struct{} { return p.done })
+}
+
+func (s *SignalWebsocket) waitProgress(ctx context.Context, stage func(*requestProgress) <-chan struct{}) error {
+	if s == nil {
+		return nil
+	}
+	p := s.progress.Load()
+	if p == nil {
+		return nil
+	}
+	select {
+	case <-stage(p):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Close waits for connection workers, the active request handler and channel cleanup.
 // A request handler must not call Close synchronously because it would wait for itself.
 func (s *SignalWebsocket) Close() (err error) {
@@ -139,6 +182,48 @@ func (s *SignalWebsocket) Connect(ctx context.Context, requestHandler RequestHan
 	s.cancel.Store(&cancel)
 	go s.connectLoop(ctx, cancel, requestHandler)
 	return status
+}
+
+// handleRequest runs requestHandler on request, queues its response and then runs the
+// response's AfterQueued work, publishing its progress for WaitResponseQueued and
+// WaitRequestDone.
+func (s *SignalWebsocket) handleRequest(
+	ctx context.Context,
+	log zerolog.Logger,
+	requestHandler RequestHandlerFunc,
+	request *signalpb.WebSocketRequestMessage,
+) {
+	progress := &requestProgress{queued: make(chan struct{}), done: make(chan struct{})}
+	s.progress.Store(progress)
+	queued := false
+	defer func() {
+		if !queued {
+			close(progress.queued)
+		}
+		close(progress.done)
+	}()
+
+	response, err := requestHandler(ctx, request)
+	if err != nil {
+		log.Err(err).Uint64("request_id", request.GetId()).Msg("Error handling request")
+		return
+	} else if response == nil {
+		log.Warn().Uint64("request_id", request.GetId()).Msg("Request handler didn't return a response nor an error")
+		return
+	}
+	err = s.pushOutgoing(ctx, SignalWebsocketSendMessage{
+		RequestMessage:  request,
+		ResponseMessage: response,
+	})
+	queued = true
+	close(progress.queued)
+	if err != nil {
+		log.Err(err).Uint64("request_id", request.GetId()).Msg("Error queuing response message")
+		return
+	}
+	if response.AfterQueued != nil {
+		response.AfterQueued(ctx)
+	}
 }
 
 func (s *SignalWebsocket) pushStatus(ctx context.Context, status SignalWebsocketConnectionEvent, err error) {
@@ -252,22 +337,7 @@ func (s *SignalWebsocket) connectLoop(
 				if ctx.Err() != nil {
 					return
 				}
-				// Handle the request with the request handler function
-				response, err := requestHandler(ctx, request)
-
-				if err != nil {
-					log.Err(err).Uint64("request_id", request.GetId()).Msg("Error handling request")
-				} else if response != nil {
-					err = s.pushOutgoing(ctx, SignalWebsocketSendMessage{
-						RequestMessage:  request,
-						ResponseMessage: response,
-					})
-					if err != nil {
-						log.Err(err).Uint64("request_id", request.GetId()).Msg("Error queuing response message")
-					}
-				} else {
-					log.Warn().Uint64("request_id", request.GetId()).Msg("Request handler didn't return a response nor an error")
-				}
+				s.handleRequest(ctx, log, requestHandler, request)
 			}
 		}
 	}()
