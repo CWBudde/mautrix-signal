@@ -96,14 +96,24 @@ type GRPCClient struct {
 	Subscriptions        subscriptions.SubscriptionsClient
 }
 
+// Close shuts down both connections. Repeated closes are successful so the
+// receive-loop owner can join after a worker has already disconnected.
 func (gc *GRPCClient) Close() error {
 	if gc == nil {
 		return nil
 	}
 	return errors.Join(
-		gc.AuthConn.Close(),
-		gc.UnauthConn.Close(),
+		closeGRPCConn(gc.AuthConn),
+		closeGRPCConn(gc.UnauthConn),
 	)
+}
+
+func closeGRPCConn(conn *grpc.ClientConn) error {
+	err := conn.Close()
+	if errors.Is(err, grpc.ErrClientConnClosing) {
+		return nil
+	}
+	return err
 }
 
 func (gc *GRPCClient) ResetConnectBackoff() {

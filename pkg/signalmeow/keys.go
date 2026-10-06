@@ -625,7 +625,10 @@ func (cli *Client) keyCheckLoop(ctx context.Context) {
 			if err != nil {
 				if errors.Is(err, errPrekeyUpload422) {
 					log.Err(err).Msg("Got 422 error while uploading PNI prekeys, deleting session")
-					disconnectErr := cli.ClearKeysAndDisconnect(ctx)
+					// This worker belongs to loopWg. Keep clearing and event delivery
+					// tracked, but leave joining and reference release to its owner.
+					clearErr := cli.clearKeys(ctx)
+					disconnectErr := errors.Join(clearErr, cli.disconnectReceiveLoops())
 					if disconnectErr != nil {
 						log.Err(disconnectErr).Msg("ClearKeysAndDisconnect error")
 					}

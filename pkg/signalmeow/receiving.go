@@ -148,6 +148,7 @@ func (cli *Client) StartReceiveLoops(ctx context.Context) (chan SignalConnection
 		defer cli.loopWg.Done()
 		defer close(statusChan)
 		defer loopCancel()
+		initialConnectPending := true
 		var currentStatus, lastAuthStatus, lastUnauthStatus web.SignalWebsocketConnectionStatus
 		for {
 			select {
@@ -213,9 +214,9 @@ func (cli *Client) StartReceiveLoops(ctx context.Context) (chan SignalConnection
 				statusToSend = SignalConnectionStatus{
 					Event: SignalConnectionEventConnected,
 				}
-				if initialConnectChan != nil {
+				if initialConnectPending {
 					close(initialConnectChan)
-					initialConnectChan = nil
+					initialConnectPending = false
 				}
 			} else if currentStatus.Event == web.SignalWebsocketConnectionEventDisconnected {
 				statusToSend = SignalConnectionStatus{
@@ -296,12 +297,22 @@ func (cli *Client) StopReceiveLoops() error {
 		cli.UnauthedWS = nil
 		cli.GRPC = nil
 	}()
+	disconnectErr := cli.disconnectReceiveLoops()
+	if cli.loopCancel != nil {
+		cli.loopWg.Wait()
+	}
+	return disconnectErr
+}
+
+// disconnectReceiveLoops stops transports without joining receive workers or
+// resetting their references. A receive worker can call it without waiting for
+// itself; the external StopReceiveLoops still joins before releasing resources.
+func (cli *Client) disconnectReceiveLoops() error {
 	authErr := cli.AuthedWS.Close()
 	unauthErr := cli.UnauthedWS.Close()
 	grpcErr := cli.GRPC.Close()
 	if cli.loopCancel != nil {
 		cli.loopCancel()
-		cli.loopWg.Wait()
 	}
 	return errors.Join(authErr, unauthErr, grpcErr)
 }
@@ -311,15 +322,19 @@ func (cli *Client) LastConnectionStatus() SignalConnectionStatus {
 }
 
 func (cli *Client) ClearKeysAndDisconnect(ctx context.Context) error {
-	// Essentially logout, clearing sessions and keys, and disconnecting websockets
-	// but don't clear ACI UUID or profile keys or contacts, or anything else that
+	clearErr := cli.clearKeys(ctx)
+	stopLoopErr := cli.StopReceiveLoops()
+	return errors.Join(clearErr, stopLoopErr)
+}
+
+func (cli *Client) clearKeys(ctx context.Context) error {
+	// Clear sessions, keys and credentials, but retain ACI UUID, profile keys,
+	// contacts and anything else that
 	// we can reuse if we reassociate with the same Signal account.
 	// To fully "logout" delete the device from the database.
 	clearErr := cli.Store.ClearDeviceKeys(ctx)
 	clearErr2 := cli.Store.ClearPassword(ctx)
-	stopLoopErr := cli.StopReceiveLoops()
-
-	return errors.Join(clearErr, clearErr2, stopLoopErr)
+	return errors.Join(clearErr, clearErr2)
 }
 
 func (cli *Client) incomingRequestHandler(ctx context.Context, req *signalpb.WebSocketRequestMessage) (*web.SimpleResponse, error) {
