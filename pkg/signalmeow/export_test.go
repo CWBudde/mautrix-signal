@@ -28,6 +28,37 @@ func (cli *Client) SeedGroupCacheForTest(group *Group) {
 	cli.GroupCache.data[group.GroupIdentifier] = &cachedGroup{Group: group, SendEndorsementCache: &SendEndorsementCache{Expiration: time.Now().Add(time.Hour)}}
 }
 
+func (cli *Client) SenderKeyRecipientsForTest(ctx context.Context, recipients []libsignalgo.ServiceID, sec SendEndorsementCache) ([]libsignalgo.ServiceID, []libsignalgo.ServiceID) {
+	devices, _, fallback := cli.getDevicesIDs(ctx, recipients, sec, &GroupMessageSendResult{})
+	var selected []libsignalgo.ServiceID
+	for id := range devices {
+		selected = append(selected, id)
+	}
+	return selected, fallback
+}
+
+func (cli *Client) SendWithSenderKeyForTest(ctx context.Context, gid *libsignalgo.GroupIdentifier, recipients []libsignalgo.ServiceID, sec SendEndorsementCache) error {
+	_, err := cli.sendToGroupWithSenderKey(ctx, gid, recipients, sec, &signalpb.Content{}, 123, 0)
+	return err
+}
+
+func (cli *Client) EncryptionLockHeldForTest() bool {
+	if !cli.encryptionLock.TryLock() {
+		return true
+	}
+	cli.encryptionLock.Unlock()
+	return false
+}
+
+func (cli *Client) EncryptWithSenderKeyForTest(ctx context.Context, recipients []store.SessionAddressTuple, distribution uuid.UUID, cert *libsignalgo.SenderCertificate) ([]byte, error) {
+	cli.senderCertificateNoE164 = cert
+	address, err := cli.Store.ACIServiceID().Address(uint(cli.Store.DeviceID))
+	if err != nil {
+		return nil, err
+	}
+	return cli.encryptWithSenderKey(ctx, &libsignalgo.GroupIdentifier{42}, distribution, address, recipients, &signalpb.Content{})
+}
+
 // Authorization is injected; preview transport and validation are production code.
 func PreviewGroupJoinRequestForTest(ctx context.Context, key types.SerializedGroupMasterKey) (GroupJoinPreview, error) {
 	return previewGroupJoinRequest(ctx, key, func(context.Context, libsignalgo.GroupMasterKey) (*GroupAuth, error) {

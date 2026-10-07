@@ -84,9 +84,11 @@ func (cli *Client) sendToGroupWithSenderKey(
 
 	cli.encryptionLock.Lock()
 	unlocked := false
+	unlockedCtx := ctx
 	doUnlock := func() {
 		if !unlocked {
 			unlocked = true
+			ctx = unlockedCtx
 			cli.encryptionLock.Unlock()
 		}
 	}
@@ -131,7 +133,19 @@ func (cli *Client) sendToGroupWithSenderKey(
 			Any("removed_devices", removedDevices).
 			Msg("Resetting sender key due to recipient device changes")
 		devicesAddedTo = slices.Collect(maps.Keys(deviceIDs))
-		err = cli.Store.SenderKeyStore.DeleteSenderKey(ctx, myAddress, ski.DistributionID)
+		oldDistributionID := ski.DistributionID
+		// Persist a new, unshared distribution before retiring the old key.
+		// If either write fails, retries cannot authorize a previous holder
+		// to receive the new key, even if generation/distribution never runs.
+		ski = &store.SenderKeyInfo{
+			DistributionID: uuid.New(),
+			CreatedAt:      time.Now(),
+			SharedWith:     make(map[libsignalgo.ServiceID][]int),
+		}
+		if err = cli.Store.SenderKeyStore.PutSenderKeyInfo(ctx, groupIDStr, ski); err != nil {
+			return nil, fmt.Errorf("failed to store reset sender key info: %w", err)
+		}
+		err = cli.Store.SenderKeyStore.DeleteSenderKey(ctx, myAddress, oldDistributionID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to delete old sender key: %w", err)
 		}
@@ -180,7 +194,13 @@ func (cli *Client) sendToGroupWithSenderKey(
 	}
 	ssCiphertext, err := cli.encryptWithSenderKey(ctx, groupID, ski.DistributionID, myAddress, senderKeyRecipients, content)
 	if err != nil {
-		if errors.Is(err, libsignalgo.ErrorCodeSessionNotFound) {
+		if errors.Is(err, libsignalgo.ErrorCodeUntrustedIdentity) {
+			// Receiving may replace an identity after recipient selection. No
+			// ciphertext was submitted; pairwise encryption checks each peer
+			// again and preserves ordinary per-recipient failure reporting.
+			doUnlock()
+			return cli.sendToGroup(ctx, allRecipients, content, messageTimestamp, nil, groupID)
+		} else if errors.Is(err, libsignalgo.ErrorCodeSessionNotFound) {
 			log.Warn().Err(err).Msg("Got session not found error for group send from libsignal, resetting session and retrying")
 			if err = cli.Store.SenderKeyStore.DeleteSenderKeyInfo(ctx, groupIDStr); err != nil {
 				return nil, fmt.Errorf("failed to delete sender key info: %w", err)
@@ -306,11 +326,33 @@ func (cli *Client) encryptWithSenderKey(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create unidentified sender message content: %w", err)
 	}
-	ssCiphertext, err := libsignalgo.SealedSenderMultiRecipientEncrypt(ctx, usmc, senderKeyRecipients, cli.Store.ACIIdentityStore)
+	ssCiphertext, err := libsignalgo.SealedSenderMultiRecipientEncrypt(ctx, usmc, senderKeyRecipients, senderKeyIdentityStore{cli.Store.ACIIdentityStore})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sealed sender multi-recipient message: %w", err)
 	}
 	return ssCiphertext, nil
+}
+
+// Check the exact identity returned to multi-recipient encryption. A selection
+// check alone can be overtaken by a receive-side identity change.
+type senderKeyIdentityStore struct {
+	libsignalgo.IdentityKeyStore
+}
+
+func (s senderKeyIdentityStore) GetIdentityKey(ctx context.Context, id libsignalgo.ServiceID) (*libsignalgo.IdentityKey, error) {
+	key, err := s.IdentityKeyStore.GetIdentityKey(ctx, id)
+	if err != nil {
+		return nil, err
+	} else if key == nil {
+		return nil, fmt.Errorf("missing identity for %s: %w", id, libsignalgo.ErrorCodeUntrustedIdentity)
+	}
+	trusted, err := s.IdentityKeyStore.IsTrustedIdentity(ctx, id, key, libsignalgo.SignalDirectionSending)
+	if err != nil {
+		return nil, err
+	} else if !trusted {
+		return nil, fmt.Errorf("identity for %s is not trusted: %w", id, libsignalgo.ErrorCodeUntrustedIdentity)
+	}
+	return key, nil
 }
 
 func diffRecipients(
@@ -424,6 +466,18 @@ func (cli *Client) getDevicesIDs(
 			continue
 		} else if len(sessions) == 0 {
 			log.Debug().Stringer("recipient_id", recipient.UUID).Msg("No sessions for recipient after fetching keys")
+			continue
+		}
+		// Multi-recipient encryption only loads identities; unlike pairwise
+		// encryption, it does not consult the application's trust policy.
+		identity, err := cli.Store.ACIIdentityStore.GetIdentityKey(ctx, recipient)
+		if err != nil || identity == nil {
+			log.Debug().Err(err).Stringer("recipient_id", recipient).Msg("No usable identity for sender key send")
+			continue
+		}
+		trusted, err := cli.Store.ACIIdentityStore.IsTrustedIdentity(ctx, recipient, identity, libsignalgo.SignalDirectionSending)
+		if err != nil || !trusted {
+			log.Debug().Err(err).Stringer("recipient_id", recipient).Msg("Identity is not trusted for sender key send")
 			continue
 		}
 		fallbackRecipients = fallbackRecipients[:len(fallbackRecipients)-1]
