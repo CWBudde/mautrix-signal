@@ -117,3 +117,13 @@ type Story struct {
 }
 
 func (*Story) isSignalEvent() {}
+
+// IdentityVerification is a validated verification update from an authenticated own-device sync.
+// A handler failure leaves the envelope unacknowledged. It never imports a new key.
+type IdentityVerification struct {
+	ACI         uuid.UUID
+	IdentityKey []byte
+	State       signalpb.Verified_State
+}
+
+func (*IdentityVerification) isSignalEvent() {}

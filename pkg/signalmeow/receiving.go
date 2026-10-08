@@ -725,6 +725,8 @@ func (cli *Client) handleSyncMessage(ctx context.Context, msg *signalpb.SyncMess
 	handlerSuccess = true
 	log := zerolog.Ctx(ctx)
 	switch content := msg.Content.(type) {
+	case *signalpb.SyncMessage_Verified:
+		handlerSuccess = cli.handleVerificationSync(content.Verified)
 	case *signalpb.SyncMessage_Keys_:
 		aep := libsignalgo.AccountEntropyPool(content.Keys.GetAccountEntropyPool())
 		if aep != "" {
