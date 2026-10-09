@@ -99,7 +99,13 @@ func (d *Device) DoContactTxn(ctx context.Context, fn func(context.Context) erro
 	defer d.sqlStore.contactLock.Unlock()
 	ctx = context.WithValue(ctx, dbutil.ContextKeyDoTxnCallerSkip, 1)
 	ctx = context.WithValue(ctx, contextKeyContactLock, true)
-	return d.db.DoTxn(ctx, nil, fn)
+	err := d.db.DoTxn(ctx, nil, fn)
+	// No uncommitted block values enter the cache inside this transaction. Drop
+	// cached committed values after completion so successful changes become visible.
+	d.sqlStore.blockCacheLock.Lock()
+	clear(d.sqlStore.blockCache)
+	d.sqlStore.blockCacheLock.Unlock()
+	return err
 }
 
 func (d *Device) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {

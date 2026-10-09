@@ -221,7 +221,7 @@ func (s *sqlStore) LoadAndUpdateRecipient(ctx context.Context, aci, pni uuid.UUI
 		}
 	}
 	defer func() {
-		if outRecipient != nil && outRecipient.ACI != uuid.Nil && outErr == nil {
+		if ctx.Value(contextKeyContactLock) == nil && outRecipient != nil && outRecipient.ACI != uuid.Nil && outErr == nil {
 			s.blockCacheLock.Lock()
 			s.blockCache[outRecipient.ACI] = outRecipient.Blocked
 			s.blockCacheLock.Unlock()
@@ -377,9 +377,11 @@ func (s *sqlStore) StoreRecipient(ctx context.Context, recipient *types.Recipien
 			recipient.Blocked,
 			recipient.Whitelisted,
 		)
-		s.blockCacheLock.Lock()
-		s.blockCache[recipient.ACI] = recipient.Blocked
-		s.blockCacheLock.Unlock()
+		if ctx.Value(contextKeyContactLock) == nil && err == nil {
+			s.blockCacheLock.Lock()
+			s.blockCache[recipient.ACI] = recipient.Blocked
+			s.blockCacheLock.Unlock()
+		}
 	} else if recipient.PNI != uuid.Nil {
 		_, err = s.db.Exec(
 			ctx,

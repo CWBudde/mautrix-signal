@@ -65,6 +65,10 @@ type Client struct {
 
 	EventHandler func(events.SignalEvent) bool
 
+	// StorageUpdateHandler runs inside the contact transaction on the exact downloaded update.
+	// Set before receive loops start. An error rolls back all database changes.
+	StorageUpdateHandler func(context.Context, *StorageUpdate) error
+
 	storageAuthLock sync.Mutex
 	storageAuth     *basicExpiringCredentials
 	cdAuthLock      sync.Mutex

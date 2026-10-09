@@ -51,15 +51,13 @@ func (cli *Client) SyncStorage(ctx context.Context) {
 		log.Err(err).Msg("Failed to fetch storage")
 		return
 	}
-	err = cli.Store.DoContactTxn(ctx, func(ctx context.Context) error {
-		return cli.processStorageInTxn(ctx, update)
-	})
+	err = cli.ApplyStorage(ctx, update)
 	if err != nil {
 		log.Err(err).Msg("Failed to process storage update")
 	}
 }
 
-func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdate) error {
+func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdate) ([]*types.Recipient, error) {
 	log := zerolog.Ctx(ctx)
 	var changedContacts []*types.Recipient
 	for _, record := range update.NewRecords {
@@ -118,7 +116,7 @@ func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdat
 				return
 			})
 			if err != nil {
-				return fmt.Errorf("failed to update contact %s/%s: %w", aci, pni, err)
+				return nil, fmt.Errorf("failed to update contact %s/%s: %w", aci, pni, err)
 			}
 			if topLevelChanged {
 				changedContacts = append(changedContacts, recipient)
@@ -131,21 +129,22 @@ func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdat
 			masterKey := libsignalgo.GroupMasterKey(data.GroupV2.MasterKey)
 			groupID, err := cli.StoreMasterKey(ctx, masterKeyFromBytes(masterKey))
 			if err != nil {
-				return fmt.Errorf("failed to store group master key for %s: %w", groupID, err)
+				return nil, fmt.Errorf("failed to store group master key for %s: %w", groupID, err)
 			}
 			log.Debug().Stringer("group_id", groupID).Msg("Stored group master key from storage service")
 		case *signalpb.StorageRecord_Account:
 			log.Trace().Any("account_record", data.Account).Msg("Found account record")
-			cli.Store.AccountRecord = data.Account
+			deviceData := cli.Store.DeviceData
+			deviceData.AccountRecord = data.Account
 			if len(data.Account.ProfileKey) == libsignalgo.ProfileKeyLength {
 				err := cli.Store.RecipientStore.StoreProfileKey(ctx, cli.Store.ACI, libsignalgo.ProfileKey(data.Account.ProfileKey))
 				if err != nil {
-					return fmt.Errorf("failed to store own profile key: %w", err)
+					return nil, fmt.Errorf("failed to store own profile key: %w", err)
 				}
 			}
-			err := cli.Store.DeviceStore.PutDevice(ctx, &cli.Store.DeviceData)
+			err := cli.Store.DeviceStore.PutDevice(ctx, &deviceData)
 			if err != nil {
-				return fmt.Errorf("failed to save device after receiving account record: %w", err)
+				return nil, fmt.Errorf("failed to save device after receiving account record: %w", err)
 			}
 			log.Debug().Msg("Saved device after receiving account record")
 		case *signalpb.StorageRecord_GroupV1, *signalpb.StorageRecord_StoryDistributionList:
@@ -154,13 +153,7 @@ func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdat
 			log.Warn().Type("type", data).Str("item_id", record.StorageID).Msg("Unknown storage record type")
 		}
 	}
-	if len(changedContacts) > 0 {
-		go cli.handleEvent(&events.ContactList{
-			Contacts: changedContacts,
-			IsFromDB: true,
-		})
-	}
-	return nil
+	return changedContacts, nil
 }
 
 type StorageUpdate struct {
@@ -384,4 +377,38 @@ func (cli *Client) fetchStorageItemsChunk(ctx context.Context, recordKeys [][]by
 	} else {
 		return storageItems.GetItems(), nil
 	}
+}
+
+// ApplyStorage stores an already fetched update and returns persistence failures.
+// The optional handler shares the contact transaction, even for identity-only changes.
+// Contact events are emitted only after that transaction commits.
+func (cli *Client) ApplyStorage(ctx context.Context, update *StorageUpdate) error {
+	if update == nil {
+		return nil
+	}
+	var changedContacts []*types.Recipient
+	err := cli.Store.DoContactTxn(ctx, func(ctx context.Context) error {
+		var err error
+		changedContacts, err = cli.processStorageInTxn(ctx, update)
+		if err != nil {
+			return err
+		}
+		if cli.StorageUpdateHandler != nil {
+			return cli.StorageUpdateHandler(ctx, update)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// Publish live settings only after the outer transaction has committed.
+	for _, record := range update.NewRecords {
+		if account := record.StorageRecord.GetAccount(); account != nil {
+			cli.Store.AccountRecord = account
+		}
+	}
+	if len(changedContacts) > 0 {
+		go cli.handleEvent(&events.ContactList{Contacts: changedContacts, IsFromDB: true})
+	}
+	return nil
 }
