@@ -6,6 +6,7 @@ package signalmeow_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -86,3 +87,33 @@ func TestStorageUpdateHandlerCommitFailure(t *testing.T) {
 type storageDeviceWriter struct{ store.DeviceStore }
 
 func (storageDeviceWriter) PutDevice(context.Context, *store.DeviceData) error { return nil }
+
+func TestStorageUpdateHandlerConcurrent(t *testing.T) {
+	device, _, fixture := timerDevice(t)
+	if fixture != nil {
+		device.DeviceStore = storageDeviceWriter{DeviceStore: device.DeviceStore}
+	}
+	cli := signalmeow.NewClient(device, zerolog.Nop(), func(events.SignalEvent) bool { return true })
+	var workers sync.WaitGroup
+	failures := make(chan error, 4)
+	for worker := range 4 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for iteration := range 10 {
+				update := &signalmeow.StorageUpdate{Version: uint64(worker*10 + iteration + 1), NewRecords: []*signalmeow.DecryptedStorageRecord{
+					{StorageRecord: &signalpb.StorageRecord{Record: &signalpb.StorageRecord_Account{Account: &signalpb.AccountRecord{ReadReceipts: worker%2 == 0}}}},
+				}}
+				if err := cli.ApplyStorage(context.Background(), update); err != nil {
+					failures <- err
+					return
+				}
+			}
+		}()
+	}
+	workers.Wait()
+	close(failures)
+	for err := range failures {
+		t.Error(err)
+	}
+}

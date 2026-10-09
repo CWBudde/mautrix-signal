@@ -69,11 +69,12 @@ type Client struct {
 	// Set before receive loops start. An error rolls back all database changes.
 	StorageUpdateHandler func(context.Context, *StorageUpdate) error
 
-	storageAuthLock sync.Mutex
-	storageAuth     *basicExpiringCredentials
-	cdAuthLock      sync.Mutex
-	cdAuth          *basicExpiringCredentials
-	cdToken         []byte
+	storageApplyLock sync.Mutex
+	storageAuthLock  sync.Mutex
+	storageAuth      *basicExpiringCredentials
+	cdAuthLock       sync.Mutex
+	cdAuth           *basicExpiringCredentials
+	cdToken          []byte
 
 	writeCallbackCounter chan time.Time
 }

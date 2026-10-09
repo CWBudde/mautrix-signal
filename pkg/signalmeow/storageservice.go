@@ -386,6 +386,9 @@ func (cli *Client) ApplyStorage(ctx context.Context, update *StorageUpdate) erro
 	if update == nil {
 		return nil
 	}
+	// Serialize the SQL transaction and subsequent publication as one operation.
+	cli.storageApplyLock.Lock()
+	defer cli.storageApplyLock.Unlock()
 	var changedContacts []*types.Recipient
 	err := cli.Store.DoContactTxn(ctx, func(ctx context.Context) error {
 		var err error
