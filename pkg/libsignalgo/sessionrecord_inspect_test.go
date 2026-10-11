@@ -12,6 +12,7 @@ import (
 	"github.com/cwbudde/libsignal-go/proto"
 	"github.com/cwbudde/libsignal-go/spqr"
 	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
+	"google.golang.org/protobuf/encoding/protowire"
 	googleproto "google.golang.org/protobuf/proto"
 )
 
@@ -74,13 +75,23 @@ func TestInspectSessionRecordPendingMetadata(t *testing.T) {
 		if present {
 			st.PendingPreKey.PreKeyId = new(uint32)
 		}
-		st.PendingKyberPreKey = &proto.SessionStructure_PendingKyberPreKey{Ciphertext: make([]byte, 1568)}
+		st.PendingKyberPreKey = &proto.SessionStructure_PendingKyberPreKey{Ciphertext: append([]byte{0x08}, make([]byte, 1568)...)}
+		st.SenderChain = &proto.SessionStructure_Chain{SenderRatchetKey: bytes.Clone(st.AliceBaseKey), SenderRatchetKeyPrivate: make([]byte, 32), ChainKey: &proto.SessionStructure_Chain_ChainKey{Key: make([]byte, 32)}}
+		record, err := libsignalgo.DeserializeSessionRecord(inspectionRecord(t, st))
+		if err != nil {
+			t.Fatal(err)
+		}
+		usable, err := record.HasCurrentState()
+		_ = record.Destroy()
+		if err != nil || usable {
+			t.Fatal("old pending sender chain did not expire", err)
+		}
 		got, err := libsignalgo.InspectSessionRecord(inspectionRecord(t, st))
 		if err != nil {
 			t.Fatal(err)
 		}
 		p := got.Current.PendingPreKey
-		if p == nil || (p.PreKeyID != nil) != present || p.TimestampSeconds != 1_700_000_000 || p.SignedPreKeyID != -1 || got.Current.PendingKyberID == nil || *got.Current.PendingKyberID != 0 {
+		if !got.Current.SenderChainPresent || p == nil || (p.PreKeyID != nil) != present || p.TimestampSeconds != 1_700_000_000 || p.SignedPreKeyID != -1 || got.Current.PendingKyberID == nil || *got.Current.PendingKyberID != 0 {
 			t.Fatal("pending metadata differs")
 		}
 	}
@@ -215,5 +226,38 @@ func TestInspectSessionRecordNonMutation(t *testing.T) {
 	again, err := libsignalgo.InspectSessionRecord(raw)
 	if err != nil || sha256.Sum256(raw) != before || again.Current.LocalIdentityPublic[1] != 0x42 {
 		t.Fatal("inspection aliases input", err)
+	}
+}
+
+func TestInspectSessionRecordSupersededEncoding(t *testing.T) {
+	for _, name := range []string{"PQ", "version", "overflow"} {
+		t.Run(name, func(t *testing.T) {
+			st := inspectionState()
+			raw := inspectionMarshal(t, st)
+			switch name {
+			case "PQ":
+				raw = protowire.AppendBytes(protowire.AppendTag(raw, 15, protowire.BytesType), []byte{0xf8, 0x07, 0x01})
+				raw = protowire.AppendBytes(protowire.AppendTag(raw, 15, protowire.BytesType), nil)
+			case "version":
+				raw = protowire.AppendVarint(protowire.AppendTag(raw, 1, protowire.VarintType), 99)
+				raw = protowire.AppendVarint(protowire.AppendTag(raw, 1, protowire.VarintType), 4)
+			case "overflow":
+				raw = protowire.AppendVarint(protowire.AppendTag(raw, 1, protowire.VarintType), 1<<32+4)
+			}
+			raw = protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType), raw)
+			got, err := libsignalgo.InspectSessionRecord(raw)
+			if !errors.Is(err, libsignalgo.ErrUnsupportedSessionRecord) || !reflect.DeepEqual(got, libsignalgo.SessionRecordInspection{}) {
+				t.Fatal("superseded unsupported encoding accepted", err)
+			}
+		})
+	}
+}
+
+func TestInspectSessionRecordSignedOverflow(t *testing.T) {
+	st := inspectionState()
+	st.PendingPreKey = &proto.SessionStructure_PendingPreKey{BaseKey: st.AliceBaseKey}
+	st.PendingPreKey.ProtoReflect().SetUnknown(protowire.AppendVarint(protowire.AppendTag(nil, 3, protowire.VarintType), 1<<32))
+	if _, err := libsignalgo.InspectSessionRecord(inspectionRecord(t, st)); !errors.Is(err, libsignalgo.ErrMalformedSessionRecord) {
+		t.Fatal("signed overflow accepted", err)
 	}
 }

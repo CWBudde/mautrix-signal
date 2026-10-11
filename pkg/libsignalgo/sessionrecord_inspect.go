@@ -123,6 +123,32 @@ func inspectSessionWire(raw []byte, md protoreflect.MessageDescriptor, depth int
 		if consumed < 0 {
 			return ErrMalformedSessionRecord
 		}
+		if md.FullName() == (&proto.SessionStructure{}).ProtoReflect().Descriptor().FullName() {
+			if number == 1 {
+				value, _ := protowire.ConsumeVarint(raw)
+				if value != 3 && value != 4 {
+					return fmt.Errorf("%w: session version", ErrUnsupportedSessionRecord)
+				}
+			}
+			if number == 15 {
+				inner, _ := protowire.ConsumeBytes(raw)
+				if err := inspectSessionPQ(inner); err != nil {
+					return err
+				}
+			}
+		}
+		if fd.Kind() == protoreflect.Int32Kind {
+			value, _ := protowire.ConsumeVarint(raw)
+			if uint64(int64(int32(value))) != value {
+				return fmt.Errorf("%w: signed scalar overflow", ErrMalformedSessionRecord)
+			}
+		}
+		if fd.Kind() == protoreflect.Uint32Kind {
+			value, _ := protowire.ConsumeVarint(raw)
+			if value > 1<<32-1 {
+				return fmt.Errorf("%w: scalar overflow", ErrMalformedSessionRecord)
+			}
+		}
 		if fd.Kind() == protoreflect.MessageKind {
 			inner, count := protowire.ConsumeBytes(raw)
 			if count < 0 {
@@ -133,6 +159,20 @@ func inspectSessionWire(raw []byte, md protoreflect.MessageDescriptor, depth int
 			}
 		}
 		raw = raw[consumed:]
+	}
+	return nil
+}
+
+func inspectSessionPQ(raw []byte) error {
+	if err := spqr.ValidateState(raw); err != nil {
+		category := ErrMalformedSessionRecord
+		if errors.Is(err, spqr.ErrUnsupportedState) {
+			category = ErrUnsupportedSessionRecord
+		}
+		if errors.Is(err, spqr.ErrStateLimit) {
+			category = ErrSessionRecordLimit
+		}
+		return fmt.Errorf("%w: PQ state", category)
 	}
 	return nil
 }
@@ -148,15 +188,8 @@ func inspectSessionState(st *proto.SessionStructure) (SessionStateInspection, er
 	if len(st.ReceiverChains) > 5 {
 		return result, fmt.Errorf("%w: receiver chains", ErrSessionRecordLimit)
 	}
-	if err := spqr.ValidateState(st.PqRatchetState); err != nil {
-		category := ErrMalformedSessionRecord
-		if errors.Is(err, spqr.ErrUnsupportedState) {
-			category = ErrUnsupportedSessionRecord
-		}
-		if errors.Is(err, spqr.ErrStateLimit) {
-			category = ErrSessionRecordLimit
-		}
-		return result, fmt.Errorf("%w: PQ state", category)
+	if err := inspectSessionPQ(st.PqRatchetState); err != nil {
+		return result, err
 	}
 	status, err := spqr.Negotiation(st.PqRatchetState)
 	if err != nil {
@@ -189,8 +222,11 @@ func inspectSessionState(st *proto.SessionStructure) (SessionStateInspection, er
 		}
 	}
 	if p := st.PendingKyberPreKey; p != nil {
-		if len(p.Ciphertext) != 1568 {
+		if len(p.Ciphertext) != 1569 {
 			return SessionStateInspection{}, fmt.Errorf("%w: pending Kyber ciphertext", ErrMalformedSessionRecord)
+		}
+		if p.Ciphertext[0] != 0x08 {
+			return SessionStateInspection{}, fmt.Errorf("%w: pending Kyber type", ErrUnsupportedSessionRecord)
 		}
 		result.PendingKyberID = new(p.PreKeyId)
 	}
