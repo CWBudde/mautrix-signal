@@ -8,11 +8,12 @@ tool go.mau.fi/util/cmd/maubuild
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/cwbudde/libsignal-go v0.7.1-cw.5
+	github.com/cwbudde/libsignal-go v0.7.1-cw.6
 	github.com/emersion/go-vcard v0.0.0-20241024213814-c9703dde27ff
 	github.com/google/uuid v1.6.0
 	github.com/gtank/ristretto255 v0.2.0
 	github.com/mattn/go-pointer v0.0.1
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/rs/zerolog v1.35.1
 	github.com/stretchr/testify v1.12.0
 	github.com/tidwall/gjson v1.19.0
@@ -35,7 +36,6 @@ require (
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-sqlite3 v1.14.52 // indirect
 	github.com/petermattis/goid v0.0.0-20260820044319-269ab09b5261 // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
