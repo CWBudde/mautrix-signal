@@ -105,3 +105,5 @@ func SendPrivateStoryWithForTest(ctx context.Context, distribution uuid.UUID, re
 func (cli *Client) RefillPreKeysForTest(ctx context.Context, pks store.PreKeyStore, ecServerCount, kyberServerCount int) (bool, error) {
 	return cli.refillPreKeys(ctx, pks, ecServerCount, kyberServerCount)
 }
+
+var ErrPrekeyUpload422ForTest = errPrekeyUpload422

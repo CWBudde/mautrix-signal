@@ -591,14 +591,10 @@ func (cli *Client) CheckAndUploadNewPreKeys(ctx context.Context, pks store.PreKe
 		return err
 	}
 	uploadErr := cli.RegisterAllPreKeys(ctx, pks)
-	if uploadErr == nil {
-		return err
+	if uploadErr != nil {
+		log.Err(uploadErr).Msg("Error registering prekey batches")
 	}
-	log.Err(uploadErr).Msg("Error registering prekey batches")
-	if err == nil {
-		// Keep the upload error's own chain (e.g. 422) when refilling succeeded.
-		return uploadErr
-	}
+	// A refill failure is reported even when the other kind was uploaded.
 	return errors.Join(err, uploadErr)
 }
 

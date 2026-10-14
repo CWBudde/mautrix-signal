@@ -33,7 +33,9 @@ import (
 // In particular, the receive worker must not join its own loopWg during logout.
 func TestKeyCheckLifecyclePNI422(t *testing.T) {
 	// aci-refill: an ACI refill failure (such as exhaustion) must not skip the PNI check.
-	for _, failure := range []string{"success", "aci-refill", "delete-keys", "remove-sessions", "persist-password"} {
+	// pni-kyber-refill: a failed PNI Kyber refill keeps neither the EC reupload from running nor
+	// its own error from being reported along with the 422.
+	for _, failure := range []string{"success", "aci-refill", "pni-kyber-refill", "delete-keys", "remove-sessions", "persist-password"} {
 		t.Run(failure, func(t *testing.T) { testKeyCheckLifecyclePNI422(t, failure) })
 	}
 }
@@ -55,6 +57,7 @@ func testKeyCheckLifecyclePNI422(t *testing.T, failure string) {
 	keysDeleted, sessionsRemoved, passwordSaved := make(chan struct{}), make(chan struct{}), make(chan string, 1)
 	cleanupErr := errors.New("fixture cleanup failure")
 	aciKeys := &keyCheckPreKeys{serviceID: libsignalgo.NewACIServiceID(aci), deleted: keysDeleted, keys: signalmeow.GeneratePreKeys(1, 1)}
+	pniKeys := &keyCheckPreKeys{serviceID: libsignalgo.NewPNIServiceID(pni), keys: signalmeow.GeneratePreKeys(1, 1)}
 	sessions := &keyCheckSessions{removed: sessionsRemoved}
 	devices := &keyCheckDeviceStore{saved: passwordSaved}
 	switch failure {
@@ -66,11 +69,14 @@ func testKeyCheckLifecyclePNI422(t *testing.T, failure string) {
 		devices.putErr = cleanupErr
 	case "aci-refill":
 		aciKeys.countErr = store.ErrPreKeyAllocatorExhausted
+	case "pni-kyber-refill":
+		// The first count is the EC refill, the second the Kyber refill.
+		pniKeys.countErr, pniKeys.countErrCall = store.ErrPreKeyAllocatorExhausted, 2
 	}
 	device := &store.Device{
 		DeviceData:      store.DeviceData{ACI: aci, PNI: pni, DeviceID: 2, Password: "fixture-password", PNIIdentityKeyPair: identity, MasterKey: []byte{1}},
 		ACIPreKeyStore:  aciKeys,
-		PNIPreKeyStore:  &keyCheckPreKeys{serviceID: libsignalgo.NewPNIServiceID(pni), keys: signalmeow.GeneratePreKeys(1, 1)},
+		PNIPreKeyStore:  pniKeys,
 		ACISessionStore: sessions,
 		DeviceStore:     devices,
 	}
@@ -152,12 +158,11 @@ func testKeyCheckLifecyclePNI422(t *testing.T, failure string) {
 	keyCheckWait(t, ctx, statusDone, "receive status channel closure")
 	select {
 	case logout := <-loggedOut:
-		cause := logout.Error
-		for cause != nil && errors.Unwrap(cause) != nil {
-			cause = errors.Unwrap(cause)
-		}
-		if cause == nil || cause.Error() != "http 422 while registering prekeys" {
+		if !errors.Is(logout.Error, signalmeow.ErrPrekeyUpload422ForTest) {
 			t.Fatalf("LoggedOut cause = %v, want PNI upload 422", logout.Error)
+		}
+		if refillFailed := errors.Is(logout.Error, store.ErrPreKeyAllocatorExhausted); refillFailed != (failure == "pni-kyber-refill") {
+			t.Fatalf("LoggedOut error %v: carries the PNI refill failure = %v", logout.Error, refillFailed)
 		}
 	case <-ctx.Done():
 		t.Fatal("PNI upload returned 422 and disconnected, but LoggedOut was not delivered (receive worker may be joining itself):", ctx.Err())
@@ -224,13 +229,20 @@ type keyCheckPreKeys struct {
 	keys      []*libsignalgo.PreKeyRecord
 	deleted   chan struct{}
 	deleteErr error
-	countErr  error
+	// countErr fails PreKeyCounts: every call, or only call countErrCall when it is set.
+	countErr     error
+	countErrCall int
+	countCalls   int
 }
 
 func (s *keyCheckPreKeys) GetServiceID() libsignalgo.ServiceID { return s.serviceID }
 
 // The store is full: refill reuploads without generating, so it never reserves.
 func (s *keyCheckPreKeys) PreKeyCounts(context.Context) (uint32, uint32, error) {
+	s.countCalls++
+	if s.countErrCall != 0 && s.countCalls != s.countErrCall {
+		return 100, 100, nil
+	}
 	return 100, 100, s.countErr
 }
 func (*keyCheckPreKeys) ReservePreKeyIDs(context.Context, store.PreKeyKind, uint32) (uint32, error) {
