@@ -91,9 +91,9 @@ func (cli *Client) RegisterAllPreKeys(ctx context.Context, pks store.PreKeyStore
 }
 
 func (cli *Client) GenerateAndSaveNextPreKeyBatch(ctx context.Context, pks store.PreKeyStore, serverCount int) (bool, error) {
-	storeCount, nextPreKeyID, err := pks.GetNextPreKeyID(ctx)
+	storeCount, _, err := pks.PreKeyCounts(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to get next prekey ID: %w", err)
+		return false, fmt.Errorf("failed to count prekeys: %w", err)
 	}
 	if serverCount < PREKEY_BATCH_SIZE/2 {
 		if storeCount >= PREKEY_BATCH_SIZE {
@@ -120,7 +120,14 @@ func (cli *Client) GenerateAndSaveNextPreKeyBatch(ctx context.Context, pks store
 		return false, nil
 	}
 	if storeCount < PREKEY_BATCH_SIZE {
-		preKeys := GeneratePreKeys(nextPreKeyID, PREKEY_BATCH_SIZE-storeCount)
+		// Reserve the whole batch durably before generating it: interrupted generation
+		// leaves a gap, never reusable IDs.
+		count := PREKEY_BATCH_SIZE - storeCount
+		start, err := pks.ReservePreKeyIDs(ctx, store.PreKeyEC, count)
+		if err != nil {
+			return false, fmt.Errorf("failed to reserve prekey IDs: %w", err)
+		}
+		preKeys := GeneratePreKeys(start, count)
 		for _, preKey := range preKeys {
 			err = pks.StorePreKey(ctx, 0, preKey)
 			if err != nil {
@@ -138,9 +145,10 @@ func (cli *Client) GenerateAndSaveNextKyberPreKeyBatch(ctx context.Context, pks 
 	} else {
 		identityKeyPair = cli.Store.ACIIdentityKeyPair
 	}
-	storeCount, nextKyberPreKeyID, err := pks.GetNextKyberPreKeyID(ctx)
+	// Count ordinary keys only; the retained last-resort key is not part of the batch.
+	_, storeCount, err := pks.PreKeyCounts(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to get next kyber prekey ID: %w", err)
+		return false, fmt.Errorf("failed to count kyber prekeys: %w", err)
 	}
 	if serverCount < PREKEY_BATCH_SIZE/2 {
 		if storeCount >= PREKEY_BATCH_SIZE {
@@ -167,7 +175,12 @@ func (cli *Client) GenerateAndSaveNextKyberPreKeyBatch(ctx context.Context, pks 
 		return false, nil
 	}
 	if storeCount < PREKEY_BATCH_SIZE {
-		kyberPreKeys := GenerateKyberPreKeys(nextKyberPreKeyID, PREKEY_BATCH_SIZE-storeCount, identityKeyPair)
+		count := PREKEY_BATCH_SIZE - storeCount
+		start, err := pks.ReservePreKeyIDs(ctx, store.PreKeyKyber, count)
+		if err != nil {
+			return false, fmt.Errorf("failed to reserve kyber prekey IDs: %w", err)
+		}
+		kyberPreKeys := GenerateKyberPreKeys(start, count, identityKeyPair)
 		for _, kyberPreKey := range kyberPreKeys {
 			err = pks.StoreKyberPreKey(ctx, 0, kyberPreKey)
 			if err != nil {
@@ -570,26 +583,38 @@ func (cli *Client) CheckAndUploadNewPreKeys(ctx context.Context, pks store.PreKe
 		log.Err(err).Msg("Error getting prekey counts")
 		return err
 	}
-	doECUpload, err := cli.GenerateAndSaveNextPreKeyBatch(ctx, pks, preKeyCount)
-	if err != nil {
-		log.Err(err).Msg("Error generating and saving next prekey batch")
+	doUpload, err := cli.refillPreKeys(ctx, pks, preKeyCount, kyberPreKeyCount)
+	if !doUpload {
+		if err == nil {
+			log.Debug().Msg("No new prekeys to upload")
+		}
 		return err
 	}
-	doKyberUpload, err := cli.GenerateAndSaveNextKyberPreKeyBatch(ctx, pks, kyberPreKeyCount)
-	if err != nil {
-		log.Err(err).Msg("Error generating and saving next kyber prekey batch")
+	uploadErr := cli.RegisterAllPreKeys(ctx, pks)
+	if uploadErr == nil {
 		return err
 	}
-	if !doECUpload && !doKyberUpload {
-		log.Debug().Msg("No new prekeys to upload")
-		return nil
+	log.Err(uploadErr).Msg("Error registering prekey batches")
+	if err == nil {
+		// Keep the upload error's own chain (e.g. 422) when refilling succeeded.
+		return uploadErr
 	}
-	err = cli.RegisterAllPreKeys(ctx, pks)
-	if err != nil {
-		log.Err(err).Msg("Error registering prekey batches")
-		return err
+	return errors.Join(err, uploadErr)
+}
+
+// refillPreKeys refills the EC and Kyber batches of pks independently: a failure of one kind,
+// such as an exhausted ID space, doesn't keep the other from being refilled and uploaded.
+func (cli *Client) refillPreKeys(ctx context.Context, pks store.PreKeyStore, ecServerCount, kyberServerCount int) (bool, error) {
+	log := zerolog.Ctx(ctx)
+	doECUpload, ecErr := cli.GenerateAndSaveNextPreKeyBatch(ctx, pks, ecServerCount)
+	if ecErr != nil {
+		log.Err(ecErr).Msg("Error generating and saving next prekey batch")
 	}
-	return nil
+	doKyberUpload, kyberErr := cli.GenerateAndSaveNextKyberPreKeyBatch(ctx, pks, kyberServerCount)
+	if kyberErr != nil {
+		log.Err(kyberErr).Msg("Error generating and saving next kyber prekey batch")
+	}
+	return doECUpload || doKyberUpload, errors.Join(ecErr, kyberErr)
 }
 
 func (cli *Client) keyCheckLoop(ctx context.Context) {
@@ -613,15 +638,12 @@ func (cli *Client) keyCheckLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(checkTime):
-			err := cli.CheckAndUploadNewPreKeys(ctx, cli.Store.ACIPreKeyStore)
-			if err != nil {
-				log.Err(err).Msg("Error checking and uploading new prekeys for ACI identity")
-				// Retry within half an hour
-				windowStart = 5
-				windowSize = 25
-				continue
+			// An ACI failure (such as an exhausted ID space) doesn't skip the PNI check.
+			aciErr := cli.CheckAndUploadNewPreKeys(ctx, cli.Store.ACIPreKeyStore)
+			if aciErr != nil {
+				log.Err(aciErr).Msg("Error checking and uploading new prekeys for ACI identity")
 			}
-			err = cli.CheckAndUploadNewPreKeys(ctx, cli.Store.PNIPreKeyStore)
+			err := cli.CheckAndUploadNewPreKeys(ctx, cli.Store.PNIPreKeyStore)
 			if err != nil {
 				if errors.Is(err, errPrekeyUpload422) {
 					log.Err(err).Msg("Got 422 error while uploading PNI prekeys, deleting session")
@@ -636,6 +658,8 @@ func (cli *Client) keyCheckLoop(ctx context.Context) {
 					return
 				}
 				log.Err(err).Msg("Error checking and uploading new prekeys for PNI identity")
+			}
+			if aciErr != nil || err != nil {
 				// Retry within half an hour
 				windowStart = 5
 				windowSize = 25

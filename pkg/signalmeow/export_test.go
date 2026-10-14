@@ -101,3 +101,7 @@ func MessageWirePolicyForTest(recipient libsignalgo.ServiceID, content *signalpb
 func SendPrivateStoryWithForTest(ctx context.Context, distribution uuid.UUID, recipients []uuid.UUID, story *signalpb.StoryMessage, timestamp uint64, self uuid.UUID, send func(context.Context, libsignalgo.ServiceID, uint64, *signalpb.Content, *libsignalgo.GroupIdentifier) (bool, error)) (*GroupStorySendResult, error) {
 	return sendPrivateStoryWith(ctx, distribution, recipients, story, timestamp, self, send)
 }
+
+func (cli *Client) RefillPreKeysForTest(ctx context.Context, pks store.PreKeyStore, ecServerCount, kyberServerCount int) (bool, error) {
+	return cli.refillPreKeys(ctx, pks, ecServerCount, kyberServerCount)
+}

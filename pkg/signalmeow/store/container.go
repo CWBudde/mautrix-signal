@@ -22,6 +22,9 @@ type DeviceStore interface {
 	PutDevice(ctx context.Context, dd *DeviceData) error
 	DeviceByACI(ctx context.Context, aci uuid.UUID) (*Device, error)
 	DeviceByPNI(ctx context.Context, pni uuid.UUID) (*Device, error)
+	// StoreProvisionedDevice stores a newly linked device and replaces the account's previous
+	// protocol state atomically (see Container.StoreProvisionedDevice).
+	StoreProvisionedDevice(ctx context.Context, data *DeviceData, keys ProvisioningPreKeys) (*Device, error)
 }
 
 // Container is a wrapper for a SQL database that can contain multiple signalmeow sessions.

@@ -181,47 +181,23 @@ func performProvisioning(ctx context.Context, deviceStore store.DeviceStore, dev
 			log.Warn().Msg("No account entropy pool in provisioning message")
 		}
 
-		// Store the provisioning data
-		err = deviceStore.PutDevice(ctx, data)
+		// Store the provisioning data, the identities and the fixed-ID prekeys, replacing any
+		// previous protocol state of this account in one local transaction. The server has
+		// already registered the device, so a failure here requires linking again.
+		device, err := deviceStore.StoreProvisionedDevice(ctx, data, store.ProvisioningPreKeys{
+			ACISigned:     aciSignedPreKey,
+			PNISigned:     pniSignedPreKey,
+			ACILastResort: aciPQLastResortPreKey,
+			PNILastResort: pniPQLastResortPreKey,
+		})
 		if err != nil {
 			log.Err(err).Msg("error storing new device")
-			c <- ProvisioningResponse{State: StateProvisioningError, Err: err}
-			return
-		}
-
-		device, err := deviceStore.DeviceByACI(ctx, data.ACI)
-		if err != nil {
-			log.Err(err).Msg("error retrieving new device")
-			c <- ProvisioningResponse{State: StateProvisioningError, Err: err}
-			return
-		}
-
-		// In case this is an existing device, we gotta clear out keys
-		device.ClearDeviceKeys(ctx)
-
-		// Store identity keys?
-		_, err = device.IdentityKeyStore.SaveIdentityKey(ctx, device.ACIServiceID(), device.ACIIdentityKeyPair.GetIdentityKey())
-		if err != nil {
 			c <- ProvisioningResponse{
 				State: StateProvisioningError,
-				Err:   fmt.Errorf("error saving identity key: %w", err),
+				Err:   fmt.Errorf("failed to store linked device, link again: %w", err),
 			}
 			return
 		}
-		_, err = device.IdentityKeyStore.SaveIdentityKey(ctx, device.PNIServiceID(), device.PNIIdentityKeyPair.GetIdentityKey())
-		if err != nil {
-			c <- ProvisioningResponse{
-				State: StateProvisioningError,
-				Err:   fmt.Errorf("error saving identity key: %w", err),
-			}
-			return
-		}
-
-		// Store signed prekeys (now that we have a device)
-		device.ACIPreKeyStore.StoreSignedPreKey(ctx, 1, aciSignedPreKey)
-		device.PNIPreKeyStore.StoreSignedPreKey(ctx, 1, pniSignedPreKey)
-		device.ACIPreKeyStore.StoreLastResortKyberPreKey(ctx, 1, aciPQLastResortPreKey)
-		device.PNIPreKeyStore.StoreLastResortKyberPreKey(ctx, 1, pniPQLastResortPreKey)
 
 		// Store our profile key
 		err = device.RecipientStore.StoreRecipient(ctx, &types.Recipient{

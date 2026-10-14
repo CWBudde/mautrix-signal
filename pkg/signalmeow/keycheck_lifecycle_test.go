@@ -32,7 +32,8 @@ import (
 // Exercise the real initial key check, upload serialization and 422 handling.
 // In particular, the receive worker must not join its own loopWg during logout.
 func TestKeyCheckLifecyclePNI422(t *testing.T) {
-	for _, failure := range []string{"success", "delete-keys", "remove-sessions", "persist-password"} {
+	// aci-refill: an ACI refill failure (such as exhaustion) must not skip the PNI check.
+	for _, failure := range []string{"success", "aci-refill", "delete-keys", "remove-sessions", "persist-password"} {
 		t.Run(failure, func(t *testing.T) { testKeyCheckLifecyclePNI422(t, failure) })
 	}
 }
@@ -63,6 +64,8 @@ func testKeyCheckLifecyclePNI422(t *testing.T, failure string) {
 		sessions.removeErr = cleanupErr
 	case "persist-password":
 		devices.putErr = cleanupErr
+	case "aci-refill":
+		aciKeys.countErr = store.ErrPreKeyAllocatorExhausted
 	}
 	device := &store.Device{
 		DeviceData:      store.DeviceData{ACI: aci, PNI: pni, DeviceID: 2, Password: "fixture-password", PNIIdentityKeyPair: identity, MasterKey: []byte{1}},
@@ -221,14 +224,17 @@ type keyCheckPreKeys struct {
 	keys      []*libsignalgo.PreKeyRecord
 	deleted   chan struct{}
 	deleteErr error
+	countErr  error
 }
 
 func (s *keyCheckPreKeys) GetServiceID() libsignalgo.ServiceID { return s.serviceID }
-func (*keyCheckPreKeys) GetNextPreKeyID(context.Context) (uint32, uint32, error) {
-	return 100, 101, nil
+
+// The store is full: refill reuploads without generating, so it never reserves.
+func (s *keyCheckPreKeys) PreKeyCounts(context.Context) (uint32, uint32, error) {
+	return 100, 100, s.countErr
 }
-func (*keyCheckPreKeys) GetNextKyberPreKeyID(context.Context) (uint32, uint32, error) {
-	return 100, 101, nil
+func (*keyCheckPreKeys) ReservePreKeyIDs(context.Context, store.PreKeyKind, uint32) (uint32, error) {
+	return 0, errors.New("full fixture store must not reserve prekey IDs")
 }
 func (s *keyCheckPreKeys) AllPreKeys(context.Context) ([]*libsignalgo.PreKeyRecord, error) {
 	return s.keys, nil
