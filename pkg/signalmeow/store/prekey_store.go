@@ -42,8 +42,13 @@ type PreKeyStore interface {
 	StoreLastResortKyberPreKey(ctx context.Context, preKeyID uint32, record *libsignalgo.KyberPreKeyRecord) error
 	RemoveSignedPreKey(ctx context.Context, preKeyID uint32) error
 	RemoveKyberPreKey(ctx context.Context, preKeyID uint32) error
-	GetNextPreKeyID(ctx context.Context) (count, max uint32, err error)
-	GetNextKyberPreKeyID(ctx context.Context) (count, max uint32, err error)
+	// GetNextPreKeyID and GetNextKyberPreKeyID return the ordinary key count and the persisted
+	// next position. They don't allocate; use ReservePreKeyIDs for that.
+	GetNextPreKeyID(ctx context.Context) (count, next uint32, err error)
+	GetNextKyberPreKeyID(ctx context.Context) (count, next uint32, err error)
+	PreKeyAllocatorState(ctx context.Context) (PreKeyAllocatorState, error)
+	PreKeyCounts(ctx context.Context) (ordinaryEC, ordinaryKyber uint32, err error)
+	ReservePreKeyIDs(ctx context.Context, kind PreKeyKind, count uint32) (start uint32, err error)
 	IsKyberPreKeyLastResort(ctx context.Context, preKeyID uint32) (bool, error)
 	AllPreKeys(ctx context.Context) ([]*libsignalgo.PreKeyRecord, error)
 	AllNormalKyberPreKeys(ctx context.Context) ([]*libsignalgo.KyberPreKeyRecord, error)
@@ -51,18 +56,16 @@ type PreKeyStore interface {
 }
 
 const (
-	getAllPreKeysQuery   = `SELECT key_pair FROM signalmeow_pre_keys WHERE account_id=$1 AND service_id=$2 AND is_signed=$3`
-	getPreKeyQuery       = `SELECT key_pair FROM signalmeow_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3 AND is_signed=$4`
-	insertPreKeyQuery    = `INSERT INTO signalmeow_pre_keys (account_id, service_id, key_id, is_signed, key_pair) VALUES ($1, $2, $3, $4, $5)`
-	deletePreKeyQuery    = `DELETE FROM signalmeow_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3 AND is_signed=$4`
-	getLastPreKeyIDQuery = `SELECT COUNT(*), COALESCE(MAX(key_id), 0) FROM signalmeow_pre_keys WHERE account_id=$1 AND service_id=$2 AND is_signed=$3`
+	getAllPreKeysQuery = `SELECT key_pair FROM signalmeow_pre_keys WHERE account_id=$1 AND service_id=$2 AND is_signed=$3`
+	getPreKeyQuery     = `SELECT key_pair FROM signalmeow_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3 AND is_signed=$4`
+	insertPreKeyQuery  = `INSERT INTO signalmeow_pre_keys (account_id, service_id, key_id, is_signed, key_pair) VALUES ($1, $2, $3, $4, $5)`
+	deletePreKeyQuery  = `DELETE FROM signalmeow_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3 AND is_signed=$4`
 
-	getAllKyberPreKeysQuery   = `SELECT key_pair FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND is_last_resort=false`
-	getKyberPreKeyQuery       = `SELECT key_pair FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3`
-	insertKyberPreKeyQuery    = `INSERT INTO signalmeow_kyber_pre_keys (account_id, service_id, key_id, key_pair, is_last_resort) VALUES ($1, $2, $3, $4, $5)`
-	deleteKyberPreKeyQuery    = `DELETE FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3`
-	getLastKyberPreKeyIDQuery = `SELECT COUNT(*), COALESCE(MAX(key_id), 0) FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2`
-	isLastResortQuery         = `SELECT is_last_resort FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3`
+	getAllKyberPreKeysQuery = `SELECT key_pair FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND is_last_resort=false`
+	getKyberPreKeyQuery     = `SELECT key_pair FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3`
+	insertKyberPreKeyQuery  = `INSERT INTO signalmeow_kyber_pre_keys (account_id, service_id, key_id, key_pair, is_last_resort) VALUES ($1, $2, $3, $4, $5)`
+	deleteKyberPreKeyQuery  = `DELETE FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3`
+	isLastResortQuery       = `SELECT is_last_resort FROM signalmeow_kyber_pre_keys WHERE account_id=$1 AND service_id=$2 AND key_id=$3`
 )
 
 func scanRecord[T any](row dbutil.Scannable, deserializer func([]byte) (*T, error)) (*T, error) {
@@ -114,8 +117,7 @@ func (s *scopedSQLStore) StorePreKey(ctx context.Context, preKeyID uint32, preKe
 	if err != nil {
 		return fmt.Errorf("failed to serialize prekey: %w", err)
 	}
-	_, err = s.db.Exec(ctx, insertPreKeyQuery, s.AccountID, s.ServiceID, id, false, serialized)
-	return err
+	return s.storeRecord(ctx, PreKeyEC, id, insertPreKeyQuery, s.AccountID, s.ServiceID, id, false, serialized)
 }
 
 func (s *scopedSQLStore) StoreSignedPreKey(ctx context.Context, preKeyID uint32, preKey *libsignalgo.SignedPreKeyRecord) error {
@@ -129,8 +131,7 @@ func (s *scopedSQLStore) StoreSignedPreKey(ctx context.Context, preKeyID uint32,
 	if err != nil {
 		return fmt.Errorf("failed to serialize signed prekey: %w", err)
 	}
-	_, err = s.db.Exec(ctx, insertPreKeyQuery, s.AccountID, s.ServiceID, id, true, serialized)
-	return err
+	return s.storeRecord(ctx, PreKeySigned, id, insertPreKeyQuery, s.AccountID, s.ServiceID, id, true, serialized)
 }
 
 func (s *scopedSQLStore) StoreKyberPreKey(ctx context.Context, preKeyID uint32, kyberPreKeyRecord *libsignalgo.KyberPreKeyRecord) error {
@@ -152,8 +153,18 @@ func (s *scopedSQLStore) storeKyberPreKey(ctx context.Context, preKeyID uint32, 
 	if err != nil {
 		return fmt.Errorf("failed to serialize kyber prekey record: %w", err)
 	}
-	_, err = s.db.Exec(ctx, insertKyberPreKeyQuery, s.AccountID, s.ServiceID, id, serialized, lastResort)
-	return err
+	return s.storeRecord(ctx, PreKeyKyber, id, insertKyberPreKeyQuery, s.AccountID, s.ServiceID, id, serialized, lastResort)
+}
+
+// storeRecord inserts a key record and advances an existing allocator position past its ID in
+// one transaction (the caller's, if any).
+func (s *scopedSQLStore) storeRecord(ctx context.Context, kind PreKeyKind, id uint32, query string, args ...any) error {
+	return s.db.DoTxn(ctx, nil, func(ctx context.Context) error {
+		if _, err := s.db.Exec(ctx, query, args...); err != nil {
+			return err
+		}
+		return s.advancePreKeyAllocator(ctx, kind, id)
+	})
 }
 
 func (s *scopedSQLStore) RemovePreKey(ctx context.Context, preKeyID uint32) error {
@@ -183,20 +194,24 @@ func (s *scopedSQLStore) MarkKyberPreKeyUsed(ctx context.Context, id uint32) err
 }
 
 func (s *scopedSQLStore) GetNextPreKeyID(ctx context.Context) (count, next uint32, err error) {
-	err = s.db.QueryRow(ctx, getLastPreKeyIDQuery, s.AccountID, s.ServiceID, false).Scan(&count, &next)
+	count, _, err = s.PreKeyCounts(ctx)
+	if err == nil {
+		next, err = s.nextPreKeyID(ctx, PreKeyEC)
+	}
 	if err != nil {
 		err = fmt.Errorf("failed to query next prekey ID: %w", err)
 	}
-	next++
 	return
 }
 
 func (s *scopedSQLStore) GetNextKyberPreKeyID(ctx context.Context) (count, next uint32, err error) {
-	err = s.db.QueryRow(ctx, getLastKyberPreKeyIDQuery, s.AccountID, s.ServiceID).Scan(&count, &next)
+	_, count, err = s.PreKeyCounts(ctx)
+	if err == nil {
+		next, err = s.nextPreKeyID(ctx, PreKeyKyber)
+	}
 	if err != nil {
 		err = fmt.Errorf("failed to query next kyber prekey ID: %w", err)
 	}
-	next++
 	return
 }
 

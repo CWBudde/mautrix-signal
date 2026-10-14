@@ -1,4 +1,4 @@
--- v0 -> v27 (compatible with v13+): Latest revision
+-- v0 -> v28 (compatible with v28+): Latest revision
 CREATE TABLE signalmeow_device (
     aci_uuid              TEXT PRIMARY KEY,
 
@@ -39,6 +39,18 @@ CREATE TABLE signalmeow_kyber_pre_keys (
     is_last_resort BOOLEAN NOT NULL,
 
     PRIMARY KEY (account_id, service_id, key_id),
+    FOREIGN KEY (account_id) REFERENCES signalmeow_device (aci_uuid) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- Durable prekey ID allocation per account, local typed service ID and kind (fork-owned, v28).
+CREATE TABLE signalmeow_prekey_allocators (
+    account_id TEXT   NOT NULL,
+    service_id TEXT   NOT NULL,
+    kind       TEXT   NOT NULL CHECK ( kind IN ('ec', 'signed', 'kyber') ),
+    next_id    BIGINT NOT NULL CHECK ( next_id >= 0 ),
+    active_id  BIGINT CHECK ( active_id IS NULL OR (kind <> 'ec' AND active_id >= 0) ),
+
+    PRIMARY KEY (account_id, service_id, kind),
     FOREIGN KEY (account_id) REFERENCES signalmeow_device (aci_uuid) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
