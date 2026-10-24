@@ -80,7 +80,7 @@ type timerRows struct {
 }
 
 func (*timerRows) Columns() []string {
-	return []string{"aci", "aci_key", "registration", "pni", "pni_key", "pni_registration", "device", "number", "password", "master", "account", "entropy", "ephemeral", "media"}
+	return []string{"aci", "aci_key", "registration", "pni", "pni_key", "pni_registration", "device", "number", "password", "master", "account", "entropy", "ephemeral", "media", "storage"}
 }
 func (*timerRows) Close() error { return nil }
 func (r *timerRows) Next(dst []driver.Value) error {
@@ -140,7 +140,7 @@ func timerDevice(t *testing.T) (*store.Device, *sql.DB, *timerDB) {
 	joinCheck(t, db.Close())
 	serialized, err := key.Serialize()
 	joinCheck(t, err)
-	fixture := &timerDB{row: []driver.Value{dd.ACI.String(), serialized, int64(0), dd.PNI.String(), serialized, int64(0), int64(1), "", "", nil, nil, nil, nil, nil}}
+	fixture := &timerDB{row: []driver.Value{dd.ACI.String(), serialized, int64(0), dd.PNI.String(), serialized, int64(0), int64(1), "", "", nil, nil, nil, nil, nil, nil}}
 	db = sql.OpenDB(timerConnector{fixture})
 	wrapped, err := dbutil.NewWithDB(db, "sqlite3")
 	joinCheck(t, err)

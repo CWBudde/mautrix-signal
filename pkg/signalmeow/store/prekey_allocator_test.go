@@ -126,6 +126,22 @@ func (db *testDB) putDevice(aci, pni uuid.UUID) *store.Device {
 	return db.device(aci)
 }
 
+// putLegacyDevice stores a device row with the columns of an older schema, before upgrading.
+func (db *testDB) putLegacyDevice(aci, pni uuid.UUID) {
+	db.t.Helper()
+	aciKey, err := identityKeyPair(db.t).Serialize()
+	if err != nil {
+		db.t.Fatal(err)
+	}
+	pniKey, err := identityKeyPair(db.t).Serialize()
+	if err != nil {
+		db.t.Fatal(err)
+	}
+	db.exec(`INSERT INTO signalmeow_device (aci_uuid, aci_identity_key_pair, registration_id, pni_uuid,
+		pni_identity_key_pair, pni_registration_id, device_id, number, password) VALUES ($1, $2, 1, $3, $4, 2, 2, '+4915100000000', 'password')`,
+		aci, aciKey, pni, pniKey)
+}
+
 func (db *testDB) device(aci uuid.UUID) *store.Device {
 	db.t.Helper()
 	device, err := db.c.DeviceByACI(context.Background(), aci)
@@ -261,9 +277,9 @@ func TestPreKeyAllocatorMigration(t *testing.T) {
 	ambiguous, ambiguousPNI := uuid.New(), uuid.New()
 	noPNI := uuid.New()
 	orphanPNI := libsignalgo.NewPNIServiceID(uuid.New()).String()
-	db.putDevice(sparse, sparsePNI)
-	db.putDevice(ambiguous, ambiguousPNI)
-	db.putDevice(noPNI, uuid.Nil)
+	db.putLegacyDevice(sparse, sparsePNI)
+	db.putLegacyDevice(ambiguous, ambiguousPNI)
+	db.putLegacyDevice(noPNI, uuid.Nil)
 
 	sparseACI := libsignalgo.NewACIServiceID(sparse).String()
 	insertLegacy(db, sparse,
@@ -282,8 +298,8 @@ func TestPreKeyAllocatorMigration(t *testing.T) {
 	if err := db.c.Upgrade(ctx); err != nil {
 		t.Fatalf("upgrade v27: %v", err)
 	}
-	if v, c := db.version(); v != 28 || c != 28 {
-		t.Fatalf("migrated version = %d/%d, want 28/28", v, c)
+	if v, c := db.version(); v != 29 || c != 29 {
+		t.Fatalf("migrated version = %d/%d, want 29/29", v, c)
 	}
 
 	dev := db.device(sparse)
@@ -326,18 +342,18 @@ func TestPreKeyAllocatorMigration(t *testing.T) {
 func TestPreKeyAllocatorSchemaFloor(t *testing.T) {
 	ctx := context.Background()
 	fresh := openDB(t, filepath.Join(t.TempDir(), "account.db"))
-	if v, c := fresh.version(); v != 28 || c != 28 {
-		t.Fatalf("fresh version = %d/%d, want 28/28", v, c)
+	if v, c := fresh.version(); v != 29 || c != 29 {
+		t.Fatalf("fresh version = %d/%d, want 29/29", v, c)
 	}
 
 	migrated := openV27(t)
 	aci := uuid.New()
-	migrated.putDevice(aci, uuid.New())
+	migrated.putLegacyDevice(aci, uuid.New())
 	if err := migrated.c.Upgrade(ctx); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
-	if v, c := migrated.version(); v != 28 || c != 28 {
-		t.Fatalf("migrated version = %d/%d, want 28/28", v, c)
+	if v, c := migrated.version(); v != 29 || c != 29 {
+		t.Fatalf("migrated version = %d/%d, want 29/29", v, c)
 	}
 
 	// A v27 binary (its upgrade table ends at v27) must refuse the database before touching keys.
@@ -347,7 +363,7 @@ func TestPreKeyAllocatorSchemaFloor(t *testing.T) {
 			t.Fatalf("%s: v27 reader error = %v, want ErrUnsupportedDatabaseVersion", name, err)
 		}
 	}
-	if v, c := migrated.version(); v != 28 || c != 28 {
+	if v, c := migrated.version(); v != 29 || c != 29 {
 		t.Fatalf("version after refused downgrade = %d/%d", v, c)
 	}
 }

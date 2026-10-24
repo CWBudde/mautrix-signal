@@ -69,6 +69,9 @@ type Client struct {
 	// Set before receive loops start. An error rolls back all database changes.
 	StorageUpdateHandler func(context.Context, *StorageUpdate) error
 
+	// storageSyncHook replaces the background storage sync after keys sync (tests only).
+	storageSyncHook func(context.Context)
+
 	storageApplyLock sync.Mutex
 	storageAuthLock  sync.Mutex
 	storageAuth      *basicExpiringCredentials

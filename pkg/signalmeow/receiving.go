@@ -18,7 +18,6 @@
 package signalmeow
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -276,7 +275,7 @@ func (cli *Client) StartReceiveLoops(ctx context.Context) (chan SignalConnection
 			if cli.SyncContactsOnConnect {
 				cli.SendContactSyncRequest(loopCtx)
 			}
-			if cli.Store.MasterKey == nil {
+			if cli.needsStorageKeys() {
 				cli.SendStorageMasterKeyRequest(loopCtx)
 			}
 		}
@@ -728,29 +727,7 @@ func (cli *Client) handleSyncMessage(ctx context.Context, msg *signalpb.SyncMess
 	case *signalpb.SyncMessage_Verified:
 		handlerSuccess = cli.handleVerificationSync(content.Verified)
 	case *signalpb.SyncMessage_Keys_:
-		aep := libsignalgo.AccountEntropyPool(content.Keys.GetAccountEntropyPool())
-		if aep != "" {
-			aepMasterKey, err := aep.DeriveSVRKey()
-			if err != nil {
-				log.Err(err).Msg("Failed to derive master key from account entropy pool")
-			} else if cli.Store.MasterKey == nil {
-				cli.Store.MasterKey = aepMasterKey
-				log.Debug().Msg("Derived master key from account entropy pool (no master key in sync message)")
-			} else if !bytes.Equal(aepMasterKey, cli.Store.MasterKey) {
-				log.Warn().Msg("Derived master key doesn't match one in sync message")
-			} else {
-				log.Debug().Msg("Derived master key matches one in sync message")
-			}
-		} else {
-			log.Debug().Msg("No account entropy pool in sync message")
-		}
-		err := cli.Store.DeviceStore.PutDevice(ctx, &cli.Store.DeviceData)
-		if err != nil {
-			log.Err(err).Msg("Failed to save device after receiving master key")
-		} else {
-			log.Info().Msg("Received master key")
-			go cli.SyncStorage(ctx)
-		}
+		handlerSuccess = cli.handleKeysSync(ctx, content.Keys)
 	case *signalpb.SyncMessage_FetchLatest_:
 		switch content.FetchLatest.GetType() {
 		case signalpb.SyncMessage_FetchLatest_STORAGE_MANIFEST:

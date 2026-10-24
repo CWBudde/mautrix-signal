@@ -40,6 +40,9 @@ type DeviceData struct {
 	Number             string
 	Password           string
 	MasterKey          []byte
+	// DerivedStorageKey is a derived storage service key from a source without a master key
+	// (imports, legacy key sync). Use ResolveStorageServiceKey instead of reading key forms.
+	DerivedStorageKey  []byte
 	AccountRecord      *signalpb.AccountRecord
 	AccountEntropyPool libsignalgo.AccountEntropyPool
 	EphemeralBackupKey *libsignalgo.BackupKey

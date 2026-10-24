@@ -41,7 +41,7 @@ SELECT
 	aci_uuid, aci_identity_key_pair, registration_id,
 	pni_uuid, pni_identity_key_pair, pni_registration_id,
 	device_id, number, password, master_key, account_record,
-	account_entropy_pool, ephemeral_backup_key, media_root_backup_key
+	account_entropy_pool, ephemeral_backup_key, media_root_backup_key, storage_service_key
 FROM signalmeow_device
 `
 
@@ -61,7 +61,7 @@ func (c *Container) scanDevice(row dbutil.Scannable) (*Device, error) {
 		&device.ACI, &aciIdentityKeyPair, &device.ACIRegistrationID,
 		&device.PNI, &pniIdentityKeyPair, &device.PNIRegistrationID,
 		&device.DeviceID, &device.Number, &device.Password, &device.MasterKey, &accountRecordBytes,
-		&accountEntropyPool, &ephemeralBackupKey, &mediaRootBackupKey,
+		&accountEntropyPool, &ephemeralBackupKey, &mediaRootBackupKey, &device.DerivedStorageKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan session: %w", err)
@@ -77,6 +77,9 @@ func (c *Container) scanDevice(row dbutil.Scannable) (*Device, error) {
 
 	if len(device.MasterKey) == 0 {
 		device.MasterKey = nil
+	}
+	if len(device.DerivedStorageKey) == 0 {
+		device.DerivedStorageKey = nil
 	}
 	if len(accountRecordBytes) > 0 {
 		device.AccountRecord = &signalpb.AccountRecord{}
@@ -159,9 +162,9 @@ const (
 			aci_uuid, aci_identity_key_pair, registration_id,
 			pni_uuid, pni_identity_key_pair, pni_registration_id,
 			device_id, number, password, master_key, account_record,
-			account_entropy_pool, ephemeral_backup_key, media_root_backup_key
+			account_entropy_pool, ephemeral_backup_key, media_root_backup_key, storage_service_key
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (aci_uuid) DO UPDATE SET
 			aci_identity_key_pair=excluded.aci_identity_key_pair,
 			registration_id=excluded.registration_id,
@@ -175,7 +178,8 @@ const (
 			account_record=excluded.account_record,
 			account_entropy_pool=excluded.account_entropy_pool,
 			ephemeral_backup_key=excluded.ephemeral_backup_key,
-			media_root_backup_key=excluded.media_root_backup_key
+			media_root_backup_key=excluded.media_root_backup_key,
+			storage_service_key=excluded.storage_service_key
 	`
 	deleteDeviceQuery = `DELETE FROM signalmeow_device WHERE aci_uuid=$1`
 )
@@ -210,7 +214,7 @@ func (c *Container) PutDevice(ctx context.Context, device *DeviceData) error {
 		device.PNI, pniIdentityKeyPair, device.PNIRegistrationID,
 		device.DeviceID, device.Number, device.Password, device.MasterKey,
 		accountRecordBytes, device.AccountEntropyPool,
-		device.EphemeralBackupKey.Slice(), device.MediaRootBackupKey.Slice(),
+		device.EphemeralBackupKey.Slice(), device.MediaRootBackupKey.Slice(), device.DerivedStorageKey,
 	)
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("failed to insert device")

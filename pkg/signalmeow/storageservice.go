@@ -38,6 +38,7 @@ import (
 	"github.com/cwbudde/mautrix-signal/pkg/libsignalgo"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/events"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/protobuf/signalpb"
+	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/store"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/types"
 	"github.com/cwbudde/mautrix-signal/pkg/signalmeow/web"
 )
@@ -45,8 +46,13 @@ import (
 func (cli *Client) SyncStorage(ctx context.Context) {
 	log := cli.Log.With().Str("action", "sync storage").Logger()
 	ctx = log.WithContext(ctx)
+	storageKey, err := cli.Store.ResolveStorageServiceKey()
+	if err != nil {
+		log.Err(err).Msg("Can't sync storage")
+		return
+	}
 	// TODO only fetch changed entries
-	update, err := cli.FetchStorage(ctx, cli.Store.MasterKey, 0, nil)
+	update, err := cli.FetchStorage(ctx, storageKey, 0, nil)
 	if err != nil {
 		log.Err(err).Msg("Failed to fetch storage")
 		return
@@ -163,8 +169,10 @@ type StorageUpdate struct {
 	MissingRecords []string
 }
 
-func (cli *Client) FetchStorage(ctx context.Context, masterKey []byte, currentVersion uint64, existingKeys []string) (*StorageUpdate, error) {
-	storageKey := deriveStorageServiceKey(masterKey)
+// FetchStorage fetches the storage service with the derived key from
+// store.DeviceData.ResolveStorageServiceKey, never with a master key.
+func (cli *Client) FetchStorage(ctx context.Context, key store.StorageServiceKey, currentVersion uint64, existingKeys []string) (*StorageUpdate, error) {
+	storageKey := key[:]
 	manifest, err := cli.fetchStorageManifest(ctx, storageKey, currentVersion)
 	if err != nil {
 		return nil, err
@@ -202,12 +210,6 @@ func manifestRecordToMap(manifest []*signalpb.ManifestRecord_Identifier) map[str
 		manifestMap[base64.StdEncoding.EncodeToString(item.GetRaw())] = item.GetType()
 	}
 	return manifestMap
-}
-
-func deriveStorageServiceKey(masterKey []byte) []byte {
-	h := hmac.New(sha256.New, masterKey)
-	h.Write([]byte("Storage Service Encryption"))
-	return h.Sum(nil)
 }
 
 func deriveStorageManifestKey(storageKey []byte, version uint64) []byte {

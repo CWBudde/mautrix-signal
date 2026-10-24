@@ -341,16 +341,16 @@ func (s *SignalClient) tryConnect(ctx context.Context, retryCount int, noLoginSy
 		//      but currently syncing will fetch group info online, so it has to be connected.
 		if s.Client.Store.EphemeralBackupKey != nil {
 			go func() {
-				if s.Client.Store.MasterKey != nil {
+				if s.Client.HasStorageServiceKey() {
 					s.Client.SyncStorage(ctx)
 				} else {
-					s.UserLogin.Log.Warn().Msg("No master key for storage sync before backup sync")
+					s.UserLogin.Log.Warn().Msg("No storage service key for storage sync before backup sync")
 				}
 				s.syncChats(syncCtx, cancel)
 			}()
 		} else {
 			cancel()
-			if s.Client.Store.MasterKey != nil {
+			if s.Client.HasStorageServiceKey() {
 				go s.Client.SyncStorage(ctx)
 			}
 		}

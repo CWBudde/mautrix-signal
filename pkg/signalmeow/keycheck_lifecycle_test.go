@@ -4,6 +4,7 @@ package signalmeow_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,7 +75,7 @@ func testKeyCheckLifecyclePNI422(t *testing.T, failure string) {
 		pniKeys.countErr, pniKeys.countErrCall = store.ErrPreKeyAllocatorExhausted, 2
 	}
 	device := &store.Device{
-		DeviceData:      store.DeviceData{ACI: aci, PNI: pni, DeviceID: 2, Password: "fixture-password", PNIIdentityKeyPair: identity, MasterKey: []byte{1}},
+		DeviceData:      store.DeviceData{ACI: aci, PNI: pni, DeviceID: 2, Password: "fixture-password", PNIIdentityKeyPair: identity, MasterKey: bytes.Repeat([]byte{1}, store.StorageServiceKeyLen)},
 		ACIPreKeyStore:  aciKeys,
 		PNIPreKeyStore:  pniKeys,
 		ACISessionStore: sessions,

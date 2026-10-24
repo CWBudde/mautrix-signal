@@ -5,6 +5,7 @@ package signalmeow
 
 import (
 	"context"
+	"encoding/base64"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,18 @@ import (
 
 func (cli *Client) HandleSyncMessageForTest(ctx context.Context, msg *signalpb.SyncMessage, envelope *signalpb.Envelope) bool {
 	return cli.handleSyncMessage(ctx, msg, envelope)
+}
+
+func (cli *Client) SetStorageSyncHookForTest(hook func(context.Context)) { cli.storageSyncHook = hook }
+
+func (cli *Client) NeedsStorageKeysForTest() bool { return cli.needsStorageKeys() }
+
+func DeriveStorageManifestKeyForTest(key store.StorageServiceKey, version uint64) []byte {
+	return deriveStorageManifestKey(key[:], version)
+}
+
+func DeriveLegacyStorageItemKeyForTest(key store.StorageServiceKey, rawItemID []byte) []byte {
+	return deriveStorageItemKey(key[:], nil, rawItemID, base64.StdEncoding.EncodeToString(rawItemID))
 }
 
 func (cli *Client) StoreContactSyncForTest(ctx context.Context, data []byte) (*events.ContactList, error) {
