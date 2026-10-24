@@ -1,4 +1,4 @@
--- v0 -> v29 (compatible with v29+): Latest revision
+-- v0 -> v30 (compatible with v30+): Latest revision
 CREATE TABLE signalmeow_device (
     aci_uuid              TEXT PRIMARY KEY,
 
@@ -18,7 +18,9 @@ CREATE TABLE signalmeow_device (
     account_entropy_pool  TEXT,
     ephemeral_backup_key  bytea,
     media_root_backup_key bytea,
-    storage_service_key   bytea
+    storage_service_key   bytea,
+    -- Highest storage manifest version applied (fork-owned, v30).
+    storage_manifest_version BIGINT
 );
 
 CREATE TABLE signalmeow_pre_keys (
@@ -40,6 +42,24 @@ CREATE TABLE signalmeow_kyber_pre_keys (
     is_last_resort BOOLEAN NOT NULL,
 
     PRIMARY KEY (account_id, service_id, key_id),
+    FOREIGN KEY (account_id) REFERENCES signalmeow_device (aci_uuid) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- Imported privacy decisions protected from storage and bypass writes (fork-owned, v30).
+CREATE TABLE signalmeow_privacy_guards (
+    account_id       TEXT    NOT NULL,
+    entity_kind      TEXT    NOT NULL CHECK ( entity_kind IN ('account', 'aci', 'pni') ),
+    entity_id        TEXT    NOT NULL,
+    field            TEXT    NOT NULL,
+    local_present    BOOLEAN NOT NULL,
+    local_value      bytea   NOT NULL,
+    protected        BOOLEAN NOT NULL,
+    armed_version    BIGINT  NOT NULL CHECK ( armed_version >= 0 ),
+    remote_present   BOOLEAN NOT NULL DEFAULT false,
+    remote_value     bytea,
+    observed_version BIGINT,
+
+    PRIMARY KEY (account_id, entity_kind, entity_id, field),
     FOREIGN KEY (account_id) REFERENCES signalmeow_device (aci_uuid) ON DELETE CASCADE ON UPDATE CASCADE
 );
 

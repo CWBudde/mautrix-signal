@@ -298,8 +298,8 @@ func TestPreKeyAllocatorMigration(t *testing.T) {
 	if err := db.c.Upgrade(ctx); err != nil {
 		t.Fatalf("upgrade v27: %v", err)
 	}
-	if v, c := db.version(); v != 29 || c != 29 {
-		t.Fatalf("migrated version = %d/%d, want 29/29", v, c)
+	if v, c := db.version(); v != 30 || c != 30 {
+		t.Fatalf("migrated version = %d/%d, want 30/30", v, c)
 	}
 
 	dev := db.device(sparse)
@@ -342,8 +342,8 @@ func TestPreKeyAllocatorMigration(t *testing.T) {
 func TestPreKeyAllocatorSchemaFloor(t *testing.T) {
 	ctx := context.Background()
 	fresh := openDB(t, filepath.Join(t.TempDir(), "account.db"))
-	if v, c := fresh.version(); v != 29 || c != 29 {
-		t.Fatalf("fresh version = %d/%d, want 29/29", v, c)
+	if v, c := fresh.version(); v != 30 || c != 30 {
+		t.Fatalf("fresh version = %d/%d, want 30/30", v, c)
 	}
 
 	migrated := openV27(t)
@@ -352,8 +352,8 @@ func TestPreKeyAllocatorSchemaFloor(t *testing.T) {
 	if err := migrated.c.Upgrade(ctx); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
-	if v, c := migrated.version(); v != 29 || c != 29 {
-		t.Fatalf("migrated version = %d/%d, want 29/29", v, c)
+	if v, c := migrated.version(); v != 30 || c != 30 {
+		t.Fatalf("migrated version = %d/%d, want 30/30", v, c)
 	}
 
 	// A v27 binary (its upgrade table ends at v27) must refuse the database before touching keys.
@@ -363,7 +363,7 @@ func TestPreKeyAllocatorSchemaFloor(t *testing.T) {
 			t.Fatalf("%s: v27 reader error = %v, want ErrUnsupportedDatabaseVersion", name, err)
 		}
 	}
-	if v, c := migrated.version(); v != 29 || c != 29 {
+	if v, c := migrated.version(); v != 30 || c != 30 {
 		t.Fatalf("version after refused downgrade = %d/%d", v, c)
 	}
 }

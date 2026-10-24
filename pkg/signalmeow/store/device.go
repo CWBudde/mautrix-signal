@@ -20,7 +20,7 @@ type sqlStore struct {
 	contactLock sync.Mutex
 
 	blockCacheLock sync.RWMutex
-	blockCache     map[uuid.UUID]bool
+	blockCache     map[libsignalgo.ServiceID]bool
 }
 
 type scopedSQLStore struct {
@@ -42,7 +42,9 @@ type DeviceData struct {
 	MasterKey          []byte
 	// DerivedStorageKey is a derived storage service key from a source without a master key
 	// (imports, legacy key sync). Use ResolveStorageServiceKey instead of reading key forms.
-	DerivedStorageKey  []byte
+	DerivedStorageKey []byte
+	// AccountRecord is the effective account record: the authenticated storage record with
+	// protected privacy guards applied (see ProjectAccountRecord).
 	AccountRecord      *signalpb.AccountRecord
 	AccountEntropyPool libsignalgo.AccountEntropyPool
 	EphemeralBackupKey *libsignalgo.BackupKey
@@ -83,9 +85,11 @@ type Device struct {
 
 	GroupStore     GroupStore
 	RecipientStore RecipientStore
-	DeviceStore    DeviceStore
-	BackupStore    BackupStore
-	EventBuffer    EventBuffer
+	// PrivacyGuardStore protects imported privacy decisions (privacy_guards.go).
+	PrivacyGuardStore PrivacyGuardStore
+	DeviceStore       DeviceStore
+	BackupStore       BackupStore
+	EventBuffer       EventBuffer
 
 	sqlStore *sqlStore
 	db       *dbutil.Database

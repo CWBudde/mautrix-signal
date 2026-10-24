@@ -63,9 +63,14 @@ func (cli *Client) SyncStorage(ctx context.Context) {
 	}
 }
 
-func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdate) ([]*types.Recipient, error) {
+// processStorageInTxn applies a storage snapshot. With observe, the snapshot is no older than
+// the stored highwater, so its raw privacy values are recorded and may release privacy guards
+// before the writes, which apply the guards that remain (see store.PrivacyGuardStore). It
+// returns the changed contacts and the effective account record, if the snapshot has one.
+func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdate, observe bool) ([]*types.Recipient, *signalpb.AccountRecord, error) {
 	log := zerolog.Ctx(ctx)
 	var changedContacts []*types.Recipient
+	var account *signalpb.AccountRecord
 	for _, record := range update.NewRecords {
 		switch data := record.StorageRecord.GetRecord().(type) {
 		case *signalpb.StorageRecord_Contact:
@@ -83,6 +88,11 @@ func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdat
 				continue
 			}
 			contact := data.Contact
+			if observe {
+				if err := cli.observeContactPrivacy(ctx, aci, pni, contact, update.Version); err != nil {
+					return nil, nil, err
+				}
+			}
 			topLevelChanged := false
 			recipient, err := cli.Store.RecipientStore.LoadAndUpdateRecipient(ctx, aci, pni, func(recipient *types.Recipient) (changed bool, err error) {
 				if len(contact.ProfileKey) == libsignalgo.ProfileKeyLength {
@@ -114,15 +124,16 @@ func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdat
 					changed = true
 					recipient.Blocked = contact.Blocked
 				}
-				if !ptr.Val(recipient.Whitelisted) {
+				// Profile sharing follows the storage service both ways.
+				if recipient.Whitelisted == nil || *recipient.Whitelisted != contact.Whitelisted {
 					changed = true
-					recipient.Whitelisted = &contact.Whitelisted
+					recipient.Whitelisted = ptr.Ptr(contact.Whitelisted)
 				}
 				topLevelChanged = changed
 				return
 			})
 			if err != nil {
-				return nil, fmt.Errorf("failed to update contact %s/%s: %w", aci, pni, err)
+				return nil, nil, fmt.Errorf("failed to update contact %s/%s: %w", aci, pni, err)
 			}
 			if topLevelChanged {
 				changedContacts = append(changedContacts, recipient)
@@ -135,23 +146,39 @@ func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdat
 			masterKey := libsignalgo.GroupMasterKey(data.GroupV2.MasterKey)
 			groupID, err := cli.StoreMasterKey(ctx, masterKeyFromBytes(masterKey))
 			if err != nil {
-				return nil, fmt.Errorf("failed to store group master key for %s: %w", groupID, err)
+				return nil, nil, fmt.Errorf("failed to store group master key for %s: %w", groupID, err)
 			}
 			log.Debug().Stringer("group_id", groupID).Msg("Stored group master key from storage service")
 		case *signalpb.StorageRecord_Account:
 			log.Trace().Any("account_record", data.Account).Msg("Found account record")
-			deviceData := cli.Store.DeviceData
-			deviceData.AccountRecord = data.Account
-			if len(data.Account.ProfileKey) == libsignalgo.ProfileKeyLength {
-				err := cli.Store.RecipientStore.StoreProfileKey(ctx, cli.Store.ACI, libsignalgo.ProfileKey(data.Account.ProfileKey))
-				if err != nil {
-					return nil, fmt.Errorf("failed to store own profile key: %w", err)
+			if observe {
+				values := store.AccountPrivacyValues(data.Account)
+				for _, field := range store.AccountPrivacyFields {
+					value, present := values[field]
+					_, err := cli.Store.PrivacyGuardStore.ObservePrivacyRemote(ctx, store.PrivacyEntityAccount, uuid.Nil, field, present, value, update.Version)
+					if err != nil {
+						return nil, nil, err
+					}
 				}
 			}
-			err := cli.Store.DeviceStore.PutDevice(ctx, &deviceData)
+			// The raw record stays untouched for the update handler; store and publish a projection.
+			projected, err := cli.Store.PrivacyGuardStore.ProjectAccountRecord(ctx, data.Account)
 			if err != nil {
-				return nil, fmt.Errorf("failed to save device after receiving account record: %w", err)
+				return nil, nil, err
 			}
+			deviceData := cli.Store.DeviceData
+			deviceData.AccountRecord = projected
+			if len(projected.ProfileKey) == libsignalgo.ProfileKeyLength {
+				err := cli.Store.RecipientStore.StoreProfileKey(ctx, cli.Store.ACI, libsignalgo.ProfileKey(projected.ProfileKey))
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to store own profile key: %w", err)
+				}
+			}
+			err = cli.Store.DeviceStore.PutDevice(ctx, &deviceData)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to save device after receiving account record: %w", err)
+			}
+			account = projected
 			log.Debug().Msg("Saved device after receiving account record")
 		case *signalpb.StorageRecord_GroupV1, *signalpb.StorageRecord_StoryDistributionList:
 			// irrelevant data
@@ -159,7 +186,24 @@ func (cli *Client) processStorageInTxn(ctx context.Context, update *StorageUpdat
 			log.Warn().Type("type", data).Str("item_id", record.StorageID).Msg("Unknown storage record type")
 		}
 	}
-	return changedContacts, nil
+	return changedContacts, account, nil
+}
+
+// observeContactPrivacy records a contact record's raw blocked and profile sharing values
+// for the guards of its typed IDs. Proto3 omitted booleans are false values of a present record.
+func (cli *Client) observeContactPrivacy(ctx context.Context, aci, pni uuid.UUID, contact *signalpb.ContactRecord, version uint64) error {
+	for kind, id := range map[store.PrivacyEntityKind]uuid.UUID{store.PrivacyEntityACI: aci, store.PrivacyEntityPNI: pni} {
+		if id == uuid.Nil {
+			continue
+		}
+		for field, value := range map[store.PrivacyField]bool{store.PrivacyFieldBlocked: contact.Blocked, store.PrivacyFieldWhitelisted: contact.Whitelisted} {
+			_, err := cli.Store.PrivacyGuardStore.ObservePrivacyRemote(ctx, kind, id, field, true, store.PrivacyBool(value), version)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 type StorageUpdate struct {
@@ -392,11 +436,20 @@ func (cli *Client) ApplyStorage(ctx context.Context, update *StorageUpdate) erro
 	cli.storageApplyLock.Lock()
 	defer cli.storageApplyLock.Unlock()
 	var changedContacts []*types.Recipient
+	var account *signalpb.AccountRecord
 	err := cli.Store.DoContactTxn(ctx, func(ctx context.Context) error {
-		var err error
-		changedContacts, err = cli.processStorageInTxn(ctx, update)
+		highwater, err := cli.Store.PrivacyGuardStore.StorageManifestVersion(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to read storage manifest highwater: %w", err)
+		}
+		// An older snapshot still applies unguarded fields, but its privacy values are not observed.
+		changedContacts, account, err = cli.processStorageInTxn(ctx, update, update.Version >= highwater)
 		if err != nil {
 			return err
+		}
+		err = cli.Store.PrivacyGuardStore.AdvanceStorageManifestVersion(ctx, update.Version)
+		if err != nil {
+			return fmt.Errorf("failed to store storage manifest highwater: %w", err)
 		}
 		if cli.StorageUpdateHandler != nil {
 			return cli.StorageUpdateHandler(ctx, update)
@@ -407,10 +460,8 @@ func (cli *Client) ApplyStorage(ctx context.Context, update *StorageUpdate) erro
 		return err
 	}
 	// Publish live settings only after the outer transaction has committed.
-	for _, record := range update.NewRecords {
-		if account := record.StorageRecord.GetAccount(); account != nil {
-			cli.Store.AccountRecord = account
-		}
+	if account != nil {
+		cli.Store.AccountRecord = account
 	}
 	if len(changedContacts) > 0 {
 		go cli.handleEvent(&events.ContactList{Contacts: changedContacts, IsFromDB: true})

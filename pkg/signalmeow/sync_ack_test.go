@@ -38,7 +38,8 @@ var timerACI = uuid.MustParse("10000000-0000-0000-0000-000000000002")
 var errTimerStoreFailure = errors.New("offline contact store failure")
 
 // The no-cgo driver supplies one real DeviceByACI row and transaction failures;
-// it does not emulate recipient SQL. Contact conversion uses the fixture below.
+// it does not emulate recipient SQL. Contact conversion uses the fixture below. An
+// account without privacy guards and without a stored manifest highwater is emulated.
 type timerDB struct {
 	row                 []driver.Value
 	beginErr, commitErr error
@@ -63,10 +64,21 @@ func (c *timerConn) Begin() (driver.Tx, error) {
 	return timerTxn{c.fixture}, nil
 }
 func (c *timerConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
-	if !strings.Contains(query, "FROM signalmeow_device") {
-		return nil, errors.New("unexpected query")
+	switch {
+	case strings.Contains(query, "FROM signalmeow_privacy_guards"):
+		return &timerRows{read: true}, nil
+	case strings.Contains(query, "COALESCE(storage_manifest_version, 0)"):
+		return &timerRows{columns: []string{"version"}, row: []driver.Value{int64(0)}}, nil
+	case strings.Contains(query, "FROM signalmeow_device"):
+		return &timerRows{row: c.fixture.row}, nil
 	}
-	return &timerRows{row: c.fixture.row}, nil
+	return nil, errors.New("unexpected query")
+}
+func (c *timerConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+	if strings.Contains(query, "SET storage_manifest_version") || strings.Contains(query, "UPDATE signalmeow_privacy_guards") {
+		return driver.RowsAffected(0), nil
+	}
+	return nil, errors.New("unexpected exec")
 }
 
 type timerTxn struct{ fixture *timerDB }
@@ -75,11 +87,15 @@ func (tx timerTxn) Commit() error { return tx.fixture.commitErr }
 func (timerTxn) Rollback() error  { return nil }
 
 type timerRows struct {
-	row  []driver.Value
-	read bool
+	columns []string
+	row     []driver.Value
+	read    bool
 }
 
-func (*timerRows) Columns() []string {
+func (r *timerRows) Columns() []string {
+	if r.columns != nil {
+		return r.columns
+	}
 	return []string{"aci", "aci_key", "registration", "pni", "pni_key", "pni_registration", "device", "number", "password", "master", "account", "entropy", "ephemeral", "media", "storage"}
 }
 func (*timerRows) Close() error { return nil }

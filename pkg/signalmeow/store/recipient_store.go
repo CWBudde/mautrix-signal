@@ -38,7 +38,7 @@ type RecipientStore interface {
 	MyProfileKey(ctx context.Context) (*libsignalgo.ProfileKey, error)
 
 	LoadAndUpdateRecipient(ctx context.Context, aci, pni uuid.UUID, updater RecipientUpdaterFunc) (*types.Recipient, error)
-	IsBlocked(ctx context.Context, aci uuid.UUID) (bool, error)
+	IsBlocked(ctx context.Context, serviceID libsignalgo.ServiceID) (bool, error)
 	LoadRecipientByE164(ctx context.Context, e164 string) (*types.Recipient, error)
 	StoreRecipient(ctx context.Context, recipient *types.Recipient) error
 	UpdateRecipientE164(ctx context.Context, aci, pni uuid.UUID, e164 string) (*types.Recipient, error)
@@ -120,13 +120,17 @@ const (
 			pni_uuid,
 			e164_number,
 			contact_name,
-			contact_avatar_hash
+			contact_avatar_hash,
+			blocked,
+			whitelisted
 		)
-		VALUES ($1, $2, $3, $4, $5)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (account_id, pni_uuid) DO UPDATE SET
 			e164_number = excluded.e164_number,
 			contact_name = excluded.contact_name,
-			contact_avatar_hash = excluded.contact_avatar_hash
+			contact_avatar_hash = excluded.contact_avatar_hash,
+			blocked = excluded.blocked,
+			whitelisted = excluded.whitelisted
 	`
 )
 
@@ -221,10 +225,8 @@ func (s *sqlStore) LoadAndUpdateRecipient(ctx context.Context, aci, pni uuid.UUI
 		}
 	}
 	defer func() {
-		if ctx.Value(contextKeyContactLock) == nil && outRecipient != nil && outRecipient.ACI != uuid.Nil && outErr == nil {
-			s.blockCacheLock.Lock()
-			s.blockCache[outRecipient.ACI] = outRecipient.Blocked
-			s.blockCacheLock.Unlock()
+		if ctx.Value(contextKeyContactLock) == nil && outRecipient != nil && outErr == nil {
+			s.cacheBlocked(outRecipient)
 		}
 	}()
 	if ctx.Value(contextKeyContactLock) == nil {
@@ -314,18 +316,46 @@ func (s *sqlStore) LoadAndUpdateRecipient(ctx context.Context, aci, pni uuid.UUI
 	return
 }
 
-func (s *sqlStore) IsBlocked(ctx context.Context, aci uuid.UUID) (bool, error) {
+// IsBlocked reports whether the typed user is blocked: an ACI is looked up by the ACI column
+// (creating its row, as before), a PNI by the PNI column only.
+func (s *sqlStore) IsBlocked(ctx context.Context, serviceID libsignalgo.ServiceID) (bool, error) {
 	s.blockCacheLock.RLock()
-	cachedVal, ok := s.blockCache[aci]
+	cachedVal, ok := s.blockCache[serviceID]
 	s.blockCacheLock.RUnlock()
 	if ok {
 		return cachedVal, nil
 	}
-	recipient, err := s.LoadAndUpdateRecipient(ctx, aci, uuid.Nil, nil)
-	if err != nil {
-		return false, err
+	switch serviceID.Type {
+	case libsignalgo.ServiceIDTypeACI:
+		recipient, err := s.LoadAndUpdateRecipient(ctx, serviceID.UUID, uuid.Nil, nil)
+		if err != nil {
+			return false, err
+		}
+		return recipient.Blocked, nil
+	case libsignalgo.ServiceIDTypePNI:
+		recipient, err := s.LoadRecipientByPNI(ctx, serviceID.UUID)
+		if err != nil || recipient == nil {
+			return false, err
+		}
+		if ctx.Value(contextKeyContactLock) == nil {
+			s.cacheBlocked(recipient)
+		}
+		return recipient.Blocked, nil
+	default:
+		return false, fmt.Errorf("invalid service ID type %v", serviceID.Type)
 	}
-	return recipient.Blocked, nil
+}
+
+// cacheBlocked caches the committed blocked state of a recipient under its typed IDs.
+func (s *sqlStore) cacheBlocked(recipient *types.Recipient) {
+	s.blockCacheLock.Lock()
+	defer s.blockCacheLock.Unlock()
+	if recipient.ACI != uuid.Nil {
+		s.blockCache[libsignalgo.NewACIServiceID(recipient.ACI)] = recipient.Blocked
+	}
+	if recipient.PNI != uuid.Nil {
+		s.blockCache[libsignalgo.NewPNIServiceID(recipient.PNI)] = recipient.Blocked
+	}
 }
 
 func (s *sqlStore) UpdateRecipientE164(ctx context.Context, aci, pni uuid.UUID, e164 string) (*types.Recipient, error) {
@@ -355,7 +385,14 @@ func nullableUUID(u uuid.UUID) uuid.NullUUID {
 	return uuid.NullUUID{UUID: u, Valid: u != uuid.Nil}
 }
 
+// StoreRecipient writes a recipient row. Protected privacy guards are applied to the
+// recipient first, so no writer can replace a protected value.
 func (s *sqlStore) StoreRecipient(ctx context.Context, recipient *types.Recipient) (err error) {
+	if recipient.ACI != uuid.Nil || recipient.PNI != uuid.Nil {
+		if err = s.applyRecipientGuards(ctx, recipient); err != nil {
+			return err
+		}
+	}
 	if recipient.ACI != uuid.Nil {
 		_, err = s.db.Exec(
 			ctx,
@@ -378,9 +415,7 @@ func (s *sqlStore) StoreRecipient(ctx context.Context, recipient *types.Recipien
 			recipient.Whitelisted,
 		)
 		if ctx.Value(contextKeyContactLock) == nil && err == nil {
-			s.blockCacheLock.Lock()
-			s.blockCache[recipient.ACI] = recipient.Blocked
-			s.blockCacheLock.Unlock()
+			s.cacheBlocked(recipient)
 		}
 	} else if recipient.PNI != uuid.Nil {
 		_, err = s.db.Exec(
@@ -391,7 +426,12 @@ func (s *sqlStore) StoreRecipient(ctx context.Context, recipient *types.Recipien
 			recipient.E164,
 			recipient.ContactName,
 			recipient.ContactAvatar.Hash,
+			recipient.Blocked,
+			recipient.Whitelisted,
 		)
+		if ctx.Value(contextKeyContactLock) == nil && err == nil {
+			s.cacheBlocked(recipient)
+		}
 	} else {
 		err = fmt.Errorf("no ACI or PNI provided in StoreRecipient call")
 	}

@@ -122,7 +122,9 @@ type storyRecipients struct {
 }
 
 func (s *storyRecipients) MarkUnregistered(context.Context, libsignalgo.ServiceID, bool) {}
-func (s *storyRecipients) IsBlocked(context.Context, uuid.UUID) (bool, error)            { return s.blocked, nil }
+func (s *storyRecipients) IsBlocked(context.Context, libsignalgo.ServiceID) (bool, error) {
+	return s.blocked, nil
+}
 func (s *storyRecipients) StoreProfileKey(context.Context, uuid.UUID, libsignalgo.ProfileKey) error {
 	s.profileCalls++
 	return s.profileErr

@@ -619,7 +619,7 @@ func (cli *Client) handleDecryptedResult(
 		}
 	}
 
-	isBlocked, err := cli.Store.RecipientStore.IsBlocked(ctx, theirServiceID.UUID)
+	isBlocked, err := cli.Store.RecipientStore.IsBlocked(ctx, theirServiceID)
 	if err != nil {
 		log.Err(err).Stringer("sender", theirServiceID).Msg("Failed to check if sender is blocked")
 	}

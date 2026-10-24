@@ -46,7 +46,17 @@ func (s *sqlStore) MyProfileKey(ctx context.Context) (*libsignalgo.ProfileKey, e
 	return scanProfileKey(s.db.QueryRow(ctx, loadProfileKeyQuery, s.AccountID, s.AccountID))
 }
 
+// StoreProfileKey stores a user's profile key. Our own key is kept while a privacy guard
+// protects it, whatever the source (sent transcripts, stories, groups, storage).
 func (s *sqlStore) StoreProfileKey(ctx context.Context, theirACI uuid.UUID, key libsignalgo.ProfileKey) error {
+	if theirACI == s.AccountID {
+		protected, err := s.protectedOwnProfileKey(ctx)
+		if err != nil {
+			return err
+		} else if protected != nil {
+			key = *protected
+		}
+	}
 	_, err := s.db.Exec(ctx, storeProfileKeyQuery, s.AccountID, theirACI, key.Slice())
 	return err
 }

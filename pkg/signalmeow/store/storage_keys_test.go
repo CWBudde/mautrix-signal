@@ -182,7 +182,7 @@ func TestStorageServiceKeySchemaFloor(t *testing.T) {
 	if v, c := db.version(); v != 28 || c != 28 {
 		t.Fatalf("intermediate version = %d/%d, want 28/28", v, c)
 	}
-	if err := db.c.Upgrade(ctx); err != nil {
+	if err := db.root.Child("signalmeow_version", upgrades.Table[:29], dbutil.NoopLogger).Upgrade(ctx); err != nil {
 		t.Fatalf("upgrade to v29: %v", err)
 	}
 	if v, c := db.version(); v != 29 || c != 29 {
